@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ecsodus secret-bearing artifacts (PLAN §2.2) — never commit
+inventory*.json
+plan*.json
+state*.txt
+*.tfstate
+*.tfstate.*
+checkpoint*.tfstate
+.terraform/
+.terraform.lock.hcl
+/out/
+
+# OS
+.DS_Store
