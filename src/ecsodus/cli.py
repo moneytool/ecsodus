@@ -35,9 +35,12 @@ def _err(msg: str) -> int:
 def _load_inventory(path: str, allow_stale: bool = False) -> Inventory:
     inv = Inventory.load(path)
     if not allow_stale and inv.age_seconds() > MAX_INVENTORY_AGE_S:
-        raise SystemExit(_err(
-            f"inventory {path} is older than 24h (captured {inv.captured_at}); re-run "
-            "`ecsodus inventory` (or pass --allow-stale for offline review only)"))
+        raise SystemExit(
+            _err(
+                f"inventory {path} is older than 24h (captured {inv.captured_at}); re-run "
+                "`ecsodus inventory` (or pass --allow-stale for offline review only)"
+            )
+        )
     return inv
 
 
@@ -53,9 +56,11 @@ def cmd_inventory(a: argparse.Namespace) -> int:
     if not inv.stacks:
         return _err(f"no Copilot stacks found for app {a.app!r} in {inv.account}/{inv.region}")
     inv.save(a.output)
-    print(f"wrote {a.output} (mode 0600): {len(inv.stacks)} stacks, "
-          f"{sum(len(s.resources) for s in inv.stacks.values())} resources, "
-          f"{len(inv.unavailable)} unavailable")
+    print(
+        f"wrote {a.output} (mode 0600): {len(inv.stacks)} stacks, "
+        f"{sum(len(s.resources) for s in inv.stacks.values())} resources, "
+        f"{len(inv.unavailable)} unavailable"
+    )
     return 0
 
 
@@ -93,9 +98,15 @@ def cmd_generate(a: argparse.Namespace) -> int:
     for name, r in patches.stackset.items():
         (out / "retain-patches" / f"stackset-{name}.yml").write_text(r.text)
     (out / "REPORT.md").write_text(report.render(plan))
-    (out / "RUNBOOK.md").write_text(runbook.render(
-        plan, patches, include_teardown=a.i_understand_teardown_is_unverified,
-        out_dir=str(out), inventory_path=a.inventory))
+    (out / "RUNBOOK.md").write_text(
+        runbook.render(
+            plan,
+            patches,
+            include_teardown=a.i_understand_teardown_is_unverified,
+            out_dir=str(out),
+            inventory_path=a.inventory,
+        )
+    )
     if plan.closure_errors:
         print("closure check FAILED; Terraform not generated. See REPORT.md:", file=sys.stderr)
         for e in plan.closure_errors:
@@ -103,8 +114,10 @@ def cmd_generate(a: argparse.Namespace) -> int:
         return 1
     written = terraform.write_project(plan, patches, out)
     n_imports = len(plan.imports())
-    print(f"wrote {len(written)} Terraform files ({n_imports} imports), "
-          f"{len(patches.stacks)} retain patches, REPORT.md, RUNBOOK.md to {out}/")
+    print(
+        f"wrote {len(written)} Terraform files ({n_imports} imports), "
+        f"{len(patches.stacks)} retain patches, REPORT.md, RUNBOOK.md to {out}/"
+    )
     kept = [n for n, s in plan.stacks.items() if not s.handoff]
     if kept:
         print(f"{len(kept)} stack(s) kept on Copilot; see REPORT.md")
@@ -117,7 +130,8 @@ def _manifest(path: str) -> dict[str, Any]:
 
 
 def cmd_check(a: argparse.Namespace) -> int:
-    from ecsodus.check import changeset, plan as plan_check
+    from ecsodus.check import changeset
+    from ecsodus.check import plan as plan_check
 
     if a.template_diff:
         from ecsodus.emit.retain_patch import verify_patch
@@ -141,16 +155,23 @@ def cmd_check(a: argparse.Namespace) -> int:
         for s in stacks:
             nested += list((m["retain_patches"].get(s) or {}).get("nested", {}))
         res = changeset.check_change_sets(
-            docs, patched_nested=nested, allow_metadata_key=a.allow_metadata_key,
-            allow_nested_dynamic=a.allow_nested_dynamic)
+            docs,
+            patched_nested=nested,
+            allow_metadata_key=a.allow_metadata_key,
+            allow_nested_dynamic=a.allow_nested_dynamic,
+        )
         for e in res.errors:
             print(f"FAIL {e}")
         if res.verdict == changeset.EMPTY:
-            print("EMPTY change set: run `ecsodus verify-retain`; skip the stack if it passes, "
-                  "otherwise regenerate with --metadata-fallback (RUNBOOK step 3)")
+            print(
+                "EMPTY change set: run `ecsodus verify-retain`; skip the stack if it passes, "
+                "otherwise regenerate with --metadata-fallback (RUNBOOK step 3)"
+            )
             return 3
-        print(f"change sets: {res.change_sets}, accepted changes: {res.accepted}, "
-              f"verdict: {res.verdict.upper()}")
+        print(
+            f"change sets: {res.change_sets}, accepted changes: {res.accepted}, "
+            f"verdict: {res.verdict.upper()}"
+        )
         return 0 if res.ok else 1
 
     if a.state:
@@ -200,12 +221,16 @@ def cmd_verify_retain(a: argparse.Namespace) -> int:
         missing = missing_retain(body)
         if missing:
             failed = True
-            print(f"FAIL {label}: {len(missing)} resource(s) without Retain: "
-                  + ", ".join(missing[:10]) + (" ..." if len(missing) > 10 else ""))
+            print(
+                f"FAIL {label}: {len(missing)} resource(s) without Retain: "
+                + ", ".join(missing[:10])
+                + (" ..." if len(missing) > 10 else "")
+            )
         else:
             print(f"ok   {label}")
-        for r in paginate(cfn, "list_stack_resources", "StackResourceSummaries",
-                          StackName=stack_id):
+        for r in paginate(
+            cfn, "list_stack_resources", "StackResourceSummaries", StackName=stack_id
+        ):
             if r["ResourceType"] == "AWS::CloudFormation::Stack" and r.get("PhysicalResourceId"):
                 check(r["PhysicalResourceId"], f"{label}/{r['LogicalResourceId']}")
 
@@ -227,8 +252,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("inventory", help="read a Copilot app from AWS (read-only)")
     s.add_argument("--app", required=True)
     s.add_argument("--env", action="append", help="limit to this environment (repeatable)")
-    s.add_argument("--keep-on-copilot", action="append", metavar="[ENV/]WORKLOAD",
-                   help="workload that stays on Copilot (partial migration)")
+    s.add_argument(
+        "--keep-on-copilot",
+        action="append",
+        metavar="[ENV/]WORKLOAD",
+        help="workload that stays on Copilot (partial migration)",
+    )
     s.add_argument("-o", "--output", default="inventory.json")
     aws_opts(s)
     s.set_defaults(fn=cmd_inventory)
@@ -241,14 +270,25 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("generate", help="write Terraform, retain patches, report and runbook")
     s.add_argument("inventory")
     s.add_argument("--out", required=True)
-    s.add_argument("--patch-bucket", help="S3 bucket for patched templates "
-                   "(default: the Copilot artifact bucket)")
-    s.add_argument("--metadata-fallback", action="store_true",
-                   help="add an ecsodus:retain Metadata key per resource (RUNBOOK step 3)")
-    s.add_argument("--i-understand-teardown-is-unverified", action="store_true",
-                   help="emit runbook step 5 (teardown) before the AWS end-to-end run")
-    s.add_argument("--allow-stale", action="store_true",
-                   help="accept an inventory older than 24h (offline review only)")
+    s.add_argument(
+        "--patch-bucket",
+        help="S3 bucket for patched templates (default: the Copilot artifact bucket)",
+    )
+    s.add_argument(
+        "--metadata-fallback",
+        action="store_true",
+        help="add an ecsodus:retain Metadata key per resource (RUNBOOK step 3)",
+    )
+    s.add_argument(
+        "--i-understand-teardown-is-unverified",
+        action="store_true",
+        help="emit runbook step 5 (teardown) before the AWS end-to-end run",
+    )
+    s.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="accept an inventory older than 24h (offline review only)",
+    )
     s.set_defaults(fn=cmd_generate)
 
     s = sub.add_parser("check", help="gate a Terraform plan, state, or change set")
@@ -259,8 +299,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--changeset", nargs="+", help="describe-change-set JSON files")
     s.add_argument("--stack", help="stack the change sets belong to")
     s.add_argument("--allow-metadata-key", action="store_true")
-    s.add_argument("--allow-nested-dynamic", action="store_true",
-                   help="accept Dynamic entries caused by patched nested stacks (PLAN §13.3)")
+    s.add_argument(
+        "--allow-nested-dynamic",
+        action="store_true",
+        help="accept Dynamic entries caused by patched nested stacks (PLAN §13.3)",
+    )
     s.add_argument("--template-diff", nargs=2, metavar=("CURRENT", "PATCHED"))
     s.set_defaults(fn=cmd_check)
 

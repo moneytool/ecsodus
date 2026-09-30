@@ -36,6 +36,7 @@ def s3_url(bucket: str, region: str, key: str) -> str:
 
 def build_patches(inv: Inventory, bucket: str, metadata_fallback: bool = False) -> PatchSet:
     ps = PatchSet(bucket=bucket)
+
     # Children before parents: deepest nesting first.
     def depth(name: str) -> int:
         d, s = 0, inv.stacks[name]

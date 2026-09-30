@@ -42,8 +42,9 @@ def _with_lifecycle(body: hcl.Body, prevent_destroy: bool) -> hcl.Body:
     merged = False
     for k, v in body:
         if k == "lifecycle" and isinstance(v, Block):
-            v = Block([("prevent_destroy", True), *[(a, b) for a, b in v.body
-                                                    if a != "prevent_destroy"]])
+            v = Block(
+                [("prevent_destroy", True), *[(a, b) for a, b in v.body if a != "prevent_destroy"]]
+            )
             merged = True
         out.append((k, v))
     if not merged:
@@ -57,14 +58,19 @@ def render_stack(plan: MigrationPlan, stack_name: str) -> str:
         if rp.fate != IMPORT or rp.spec is None or rp.tf_address is None:
             continue
         tf_type, name = rp.tf_address.split(".", 1)
-        parts.append(f"# {rp.logical_id} ({rp.type})"
-                     + (f" — {rp.reason}" if rp.reason else ""))
+        parts.append(f"# {rp.logical_id} ({rp.type})" + (f" — {rp.reason}" if rp.reason else ""))
         for note in rp.spec.notes:
             parts.append(f"# note: {note}")
-        parts.append(hcl.block("import", (), [
-            ("to", Raw(rp.tf_address)),
-            ("id", rp.spec.import_id),
-        ]))
+        parts.append(
+            hcl.block(
+                "import",
+                (),
+                [
+                    ("to", Raw(rp.tf_address)),
+                    ("id", rp.spec.import_id),
+                ],
+            )
+        )
         body = _with_lifecycle(rp.spec.body, rp.spec.stateful)
         parts.append(hcl.block("resource", (tf_type, name), body))
         parts.append("")
@@ -72,13 +78,29 @@ def render_stack(plan: MigrationPlan, stack_name: str) -> str:
 
 
 def render_versions() -> str:
-    return header("ecsodus") + hcl.block("terraform", (), [
-        ("required_version", TERRAFORM_CONSTRAINT),
-        ("required_providers", Block([
-            ("aws", {"source": "hashicorp/aws", "version": AWS_PROVIDER_CONSTRAINT}),
-        ])),
-        ("backend", Block([], ("s3",))),
-    ]) + "\n"
+    return (
+        header("ecsodus")
+        + hcl.block(
+            "terraform",
+            (),
+            [
+                ("required_version", TERRAFORM_CONSTRAINT),
+                (
+                    "required_providers",
+                    Block(
+                        [
+                            (
+                                "aws",
+                                {"source": "hashicorp/aws", "version": AWS_PROVIDER_CONSTRAINT},
+                            ),
+                        ]
+                    ),
+                ),
+                ("backend", Block([], ("s3",))),
+            ],
+        )
+        + "\n"
+    )
 
 
 def render_backend_example(plan: MigrationPlan) -> str:
@@ -96,10 +118,18 @@ def render_backend_example(plan: MigrationPlan) -> str:
 
 def render_provider(plan: MigrationPlan) -> str:
     inv = plan.inventory
-    return header("ecsodus") + hcl.block("provider", ("aws",), [
-        ("region", inv.region),
-        ("allowed_account_ids", [inv.account]),
-    ]) + "\n"
+    return (
+        header("ecsodus")
+        + hcl.block(
+            "provider",
+            ("aws",),
+            [
+                ("region", inv.region),
+                ("allowed_account_ids", [inv.account]),
+            ],
+        )
+        + "\n"
+    )
 
 
 def manifest(plan: MigrationPlan, patches: PatchSet) -> dict[str, Any]:
@@ -113,9 +143,16 @@ def manifest(plan: MigrationPlan, patches: PatchSet) -> dict[str, Any]:
         "inventory_captured_at": inv.captured_at,
         "stack_last_updated": {s.name: s.last_updated for s in inv.stacks.values()},
         "imports": [
-            {"address": r.tf_address, "id": r.spec.import_id, "stack": r.stack,
-             "logical_id": r.logical_id, "type": r.type, "stateful": r.spec.stateful}
-            for r in plan.imports() if r.spec is not None
+            {
+                "address": r.tf_address,
+                "id": r.spec.import_id,
+                "stack": r.stack,
+                "logical_id": r.logical_id,
+                "type": r.type,
+                "stateful": r.spec.stateful,
+            }
+            for r in plan.imports()
+            if r.spec is not None
         ],
         "handoff_stacks": [n for n, s in plan.stacks.items() if s.handoff],
         "kept_stacks": {n: s.kept_because for n, s in plan.stacks.items() if not s.handoff},
@@ -123,10 +160,16 @@ def manifest(plan: MigrationPlan, patches: PatchSet) -> dict[str, Any]:
         "teardown_stops_at": plan.teardown_stops_at,
         "patch_bucket": patches.bucket,
         "retain_patches": {
-            n: {"sha256": p.result.sha256, "key": p.key, "url": p.url,
+            n: {
+                "sha256": p.result.sha256,
+                "key": p.key,
+                "url": p.url,
                 "already_retained": p.already_retained,
-                "nested": {lid: {"stack": child, "sha256": patches.stacks[child].result.sha256}
-                           for lid, child in p.children.items()}}
+                "nested": {
+                    lid: {"stack": child, "sha256": patches.stacks[child].result.sha256}
+                    for lid, child in p.children.items()
+                },
+            }
             for n, p in patches.stacks.items()
         },
         "stackset_patches": {n: r.sha256 for n, r in patches.stackset.items()},
@@ -149,6 +192,8 @@ def write_project(plan: MigrationPlan, patches: PatchSet, out: Path) -> list[Pat
         if sp.handoff and any(r.fate == IMPORT for r in plan.by_stack(name)):
             put(f"{name}.tf", render_stack(plan, name))
     put(MANIFEST, json.dumps(manifest(plan, patches), indent=2) + "\n")
-    put(".gitignore", "inventory*.json\nplan*.json\nstate*.txt\n*.tfstate*\n.terraform/\n"
-        "backend.hcl\n")
+    put(
+        ".gitignore",
+        "inventory*.json\nplan*.json\nstate*.txt\n*.tfstate*\n.terraform/\nbackend.hcl\n",
+    )
     return written

@@ -29,13 +29,19 @@ Resources:
 
 
 def make() -> Resolver:
-    stack = Stack(name="demo-test", kind="env", template_body=TEMPLATE,
-                  parameters={"AppName": "demo", "Subnets": "a, b", "Flag": "yes"},
-                  resources=[Resource("Topic", "AWS::SNS::Topic",
-                                      "arn:aws:sns:us-west-2:1:demo-topic"),
-                             Resource("Role", "AWS::IAM::Role", "demo-role")])
-    inv = Inventory(app="demo", account="1", region="us-west-2", captured_at="x",
-                    stacks={"demo-test": stack})
+    stack = Stack(
+        name="demo-test",
+        kind="env",
+        template_body=TEMPLATE,
+        parameters={"AppName": "demo", "Subnets": "a, b", "Flag": "yes"},
+        resources=[
+            Resource("Topic", "AWS::SNS::Topic", "arn:aws:sns:us-west-2:1:demo-topic"),
+            Resource("Role", "AWS::IAM::Role", "demo-role"),
+        ],
+    )
+    inv = Inventory(
+        app="demo", account="1", region="us-west-2", captured_at="x", stacks={"demo-test": stack}
+    )
     return Resolver(inv, stack)
 
 
@@ -66,11 +72,19 @@ def test_unresolvable() -> None:
 
 
 def test_hcl_rendering_escapes_interpolation() -> None:
-    text = hcl.block("resource", ("aws_x", "y"), [
-        ("name", "a${b}"), ("n", 3), ("on", True), ("list", ["a", "b"]),
-        ("tags", {"k": "v", "a:b": "c"}), ("expr", Raw("jsonencode([])")),
-        ("lifecycle", Block([("prevent_destroy", True)])),
-    ])
+    text = hcl.block(
+        "resource",
+        ("aws_x", "y"),
+        [
+            ("name", "a${b}"),
+            ("n", 3),
+            ("on", True),
+            ("list", ["a", "b"]),
+            ("tags", {"k": "v", "a:b": "c"}),
+            ("expr", Raw("jsonencode([])")),
+            ("lifecycle", Block([("prevent_destroy", True)])),
+        ],
+    )
     assert '"a$${b}"' in text
     assert '"a:b" = "c"' in text
     assert "expr" in text and "jsonencode([])" in text

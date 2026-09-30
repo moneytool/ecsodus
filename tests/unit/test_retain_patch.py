@@ -40,13 +40,16 @@ def test_every_resource_retained_nothing_else_changed(path: Path) -> None:
     # Byte stability: removing the inserted/replaced lines gives back the original lines.
     added = [ln for ln in result.text.splitlines() if ln not in text.splitlines()]
     assert all(
-        ln.strip().startswith(("DeletionPolicy: Retain", "UpdateReplacePolicy: Retain",
-                               "TemplateURL: "))
+        ln.strip().startswith(
+            ("DeletionPolicy: Retain", "UpdateReplacePolicy: Retain", "TemplateURL: ")
+        )
         for ln in added
     ), added[:5]
     kept = [ln for ln in text.splitlines() if ln in result.text.splitlines()]
     assert len(kept) >= len(text.splitlines()) - 2 * len(overrides) - sum(
-        1 for b in tpl["Resources"].values() for a in ("DeletionPolicy", "UpdateReplacePolicy")
+        1
+        for b in tpl["Resources"].values()
+        for a in ("DeletionPolicy", "UpdateReplacePolicy")
         if a in b
     )
 
@@ -57,8 +60,9 @@ def test_metadata_fallback(path: Path) -> None:
     overrides = nested(cfn.load(text))
     result = patch_template(text, overrides, metadata_fallback=True)
     after = cfn.load(result.text)
-    assert all((b.get("Metadata") or {}).get(METADATA_KEY) == "true"
-               for b in after["Resources"].values())
+    assert all(
+        (b.get("Metadata") or {}).get(METADATA_KEY) == "true" for b in after["Resources"].values()
+    )
     assert verify_patch(text, result.text, overrides, metadata_fallback=True) == []
 
 
@@ -87,16 +91,16 @@ def test_existing_policies_are_replaced() -> None:
 
 
 def test_json_templates() -> None:
-    text = json.dumps({"Resources": {"T": {"Type": "AWS::SNS::Topic", "Properties": {}}}},
-                      indent=2)
+    text = json.dumps({"Resources": {"T": {"Type": "AWS::SNS::Topic", "Properties": {}}}}, indent=2)
     out = patch_template(text).text
     assert cfn.load(out)["Resources"]["T"]["DeletionPolicy"] == "Retain"
 
 
 def test_verify_rejects_extra_changes() -> None:
     text = TEMPLATES[0].read_text()
-    patched = patch_template(text).text.replace("Type: AWS::Logs::LogGroup",
-                                                "Type: AWS::Logs::LogGroup\n    Condition: X", 1)
+    patched = patch_template(text).text.replace(
+        "Type: AWS::Logs::LogGroup", "Type: AWS::Logs::LogGroup\n    Condition: X", 1
+    )
     assert verify_patch(text, patched)
 
 

@@ -103,7 +103,7 @@ class Resolver:
         if not isinstance(v, dict):
             return v
         if len(v) == 1:
-            (k, arg), = v.items()
+            ((k, arg),) = v.items()
             fn = _FUNCS.get(k)
             if fn is not None:
                 return fn(self, arg)
@@ -197,7 +197,7 @@ class Resolver:
 
     def _eval_condition(self, expr: Any) -> Any:
         if isinstance(expr, dict) and len(expr) == 1:
-            (k, arg), = expr.items()
+            ((k, arg),) = expr.items()
             if k == "Fn::Equals":
                 a, b = (self._resolve(x) for x in arg)
                 return _scalar(a) == _scalar(b)

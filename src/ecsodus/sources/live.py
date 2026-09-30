@@ -12,6 +12,7 @@ the inventory records it in ``inv.disputed`` and never picks one silently.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -142,8 +143,10 @@ def _subnets(clients: Clients, inv: Inventory, ids: list[str]) -> None:
 def _vpcs(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     ec2 = clients("ec2")
     for v in paginate(ec2, "describe_vpcs", "Vpcs", VpcIds=ids):
-        for attr, key in (("enableDnsSupport", "EnableDnsSupport"),
-                          ("enableDnsHostnames", "EnableDnsHostnames")):
+        for attr, key in (
+            ("enableDnsSupport", "EnableDnsSupport"),
+            ("enableDnsHostnames", "EnableDnsHostnames"),
+        ):
             resp = ec2.describe_vpc_attribute(VpcId=v["VpcId"], Attribute=attr)
             v[key] = resp.get(key, {}).get("Value")
         inv.live[v["VpcId"]] = v
@@ -182,8 +185,12 @@ def _route_tables(clients: Clients, inv: Inventory, ids: list[str]) -> None:
 def _security_groups(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     ec2 = clients("ec2")
     groups = paginate(ec2, "describe_security_groups", "SecurityGroups", GroupIds=ids)
-    rules = paginate(ec2, "describe_security_group_rules", "SecurityGroupRules",
-                     Filters=[{"Name": "group-id", "Values": ids}])
+    rules = paginate(
+        ec2,
+        "describe_security_group_rules",
+        "SecurityGroupRules",
+        Filters=[{"Name": "group-id", "Values": ids}],
+    )
     for g in groups:
         g["SecurityGroupRules"] = [r for r in rules if r["GroupId"] == g["GroupId"]]
         inv.live[g["GroupId"]] = g
@@ -192,8 +199,9 @@ def _security_groups(clients: Clients, inv: Inventory, ids: list[str]) -> None:
 @reader("AWS::EC2::InternetGateway")
 def _igws(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     ec2 = clients("ec2")
-    for g in paginate(ec2, "describe_internet_gateways", "InternetGateways",
-                      InternetGatewayIds=ids):
+    for g in paginate(
+        ec2, "describe_internet_gateways", "InternetGateways", InternetGatewayIds=ids
+    ):
         inv.live[g["InternetGatewayId"]] = g
 
 
@@ -239,10 +247,12 @@ def _buckets(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     s3 = clients("s3")
     for name in ids:
         info: dict[str, Any] = {}
-        for op, key in (("get_bucket_versioning", "Versioning"),
-                        ("get_bucket_encryption", "Encryption"),
-                        ("get_public_access_block", "PublicAccessBlock"),
-                        ("get_bucket_ownership_controls", "OwnershipControls")):
+        for op, key in (
+            ("get_bucket_versioning", "Versioning"),
+            ("get_bucket_encryption", "Encryption"),
+            ("get_public_access_block", "PublicAccessBlock"),
+            ("get_bucket_ownership_controls", "OwnershipControls"),
+        ):
             try:
                 info[key] = _clean(getattr(s3, op)(Bucket=name))
             except Exception:  # noqa: BLE001 - absent configuration raises
@@ -272,11 +282,9 @@ def _keys(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     for kid in ids:
         meta = kms.describe_key(KeyId=kid)["KeyMetadata"]
         meta["Policy"] = kms.get_key_policy(KeyId=kid, PolicyName="default").get("Policy")
-        try:
-            meta["KeyRotationEnabled"] = kms.get_key_rotation_status(KeyId=kid).get(
-                "KeyRotationEnabled")
-        except Exception:  # noqa: BLE001
-            pass
+        with contextlib.suppress(Exception):
+            rotation = kms.get_key_rotation_status(KeyId=kid)
+            meta["KeyRotationEnabled"] = rotation.get("KeyRotationEnabled")
         inv.live[kid] = meta
 
 
@@ -293,10 +301,12 @@ def _roles(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     iam = clients("iam")
     for name in ids:
         role = iam.get_role(RoleName=name)["Role"]
-        role["AttachedPolicies"] = paginate(iam, "list_attached_role_policies",
-                                            "AttachedPolicies", RoleName=name)
-        role["InlinePolicyNames"] = paginate(iam, "list_role_policies", "PolicyNames",
-                                             RoleName=name)
+        role["AttachedPolicies"] = paginate(
+            iam, "list_attached_role_policies", "AttachedPolicies", RoleName=name
+        )
+        role["InlinePolicyNames"] = paginate(
+            iam, "list_role_policies", "PolicyNames", RoleName=name
+        )
         inv.live[name] = role
 
 
@@ -305,10 +315,13 @@ def _zones(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     r53 = clients("route53")
     for zid in ids:
         z = r53.get_hosted_zone(Id=zid)
-        info = {"HostedZone": z["HostedZone"],
-                "NameServers": (z.get("DelegationSet") or {}).get("NameServers", [])}
-        info["RecordSets"] = paginate(r53, "list_resource_record_sets", "ResourceRecordSets",
-                                      HostedZoneId=zid)
+        info = {
+            "HostedZone": z["HostedZone"],
+            "NameServers": (z.get("DelegationSet") or {}).get("NameServers", []),
+        }
+        info["RecordSets"] = paginate(
+            r53, "list_resource_record_sets", "ResourceRecordSets", HostedZoneId=zid
+        )
         inv.live[zid] = info
 
 
@@ -329,8 +342,7 @@ def _namespaces(clients: Clients, inv: Inventory, ids: list[str]) -> None:
 @reader("AWS::ApplicationAutoScaling::ScalableTarget")
 def _scalable_targets(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     aas = clients("application-autoscaling")
-    for t in paginate(aas, "describe_scalable_targets", "ScalableTargets",
-                      ServiceNamespace="ecs"):
+    for t in paginate(aas, "describe_scalable_targets", "ScalableTargets", ServiceNamespace="ecs"):
         key = f"{t['ResourceId']}|{t['ScalableDimension']}|{t['ServiceNamespace']}"
         inv.live[key] = t
         if t.get("ScalableTargetARN"):
@@ -340,8 +352,7 @@ def _scalable_targets(clients: Clients, inv: Inventory, ids: list[str]) -> None:
 @reader("AWS::ApplicationAutoScaling::ScalingPolicy")
 def _scaling_policies(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     aas = clients("application-autoscaling")
-    for p in paginate(aas, "describe_scaling_policies", "ScalingPolicies",
-                      ServiceNamespace="ecs"):
+    for p in paginate(aas, "describe_scaling_policies", "ScalingPolicies", ServiceNamespace="ecs"):
         inv.live[p["PolicyARN"]] = p
 
 
@@ -360,3 +371,24 @@ def _log_groups(clients: Clients, inv: Inventory, ids: list[str]) -> None:
         for g in paginate(logs, "describe_log_groups", "logGroups", logGroupNamePrefix=name):
             if g["logGroupName"] == name:
                 inv.live[name] = g
+
+
+@reader("AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress")
+def _sg_rules(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    """Standalone rules. Only physical IDs that are already rule IDs (sgr-) can be matched
+    exactly; anything else stays unreadable and the mapper blocks the rule."""
+    ec2 = clients("ec2")
+    rule_ids = [i for i in ids if i.startswith("sgr-")]
+    for chunk in _chunks(rule_ids, 100):
+        for r in (
+            ec2.describe_security_group_rules(SecurityGroupRuleIds=chunk).get("SecurityGroupRules")
+            or []
+        ):
+            inv.live[r["SecurityGroupRuleId"]] = r
+
+
+@reader("AWS::EC2::FlowLog")
+def _flow_logs(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    ec2 = clients("ec2")
+    for fl in paginate(ec2, "describe_flow_logs", "FlowLogs", FlowLogIds=ids):
+        inv.live[fl["FlowLogId"]] = fl

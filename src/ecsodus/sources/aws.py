@@ -39,12 +39,17 @@ class ReadOnlyClient:
         if (self._service, name) in FORBIDDEN:
             raise ReadOnlyViolation(f"{self._service}:{name} returns secret values; forbidden")
         fn = getattr(self._client, name)
-        if self._service == "ssm" and name in ("get_parameter", "get_parameters",
-                                               "get_parameters_by_path"):
+        if self._service == "ssm" and name in (
+            "get_parameter",
+            "get_parameters",
+            "get_parameters_by_path",
+        ):
+
             def guarded(**kwargs: Any) -> Any:
                 if kwargs.get("WithDecryption"):
                     raise ReadOnlyViolation("ssm WithDecryption=True is forbidden")
                 return fn(**kwargs)
+
             return guarded
         return fn
 

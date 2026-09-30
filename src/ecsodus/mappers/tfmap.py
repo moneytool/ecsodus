@@ -100,10 +100,7 @@ class Ctx:
     def tags(self, key: str = "Tags") -> dict[str, str]:
         """Resolved tags as a map, without ``aws:`` tags (the provider ignores them)."""
         raw = self.r(key, [])
-        if isinstance(raw, dict):
-            items = raw.items()
-        else:
-            items = ((t["Key"], t["Value"]) for t in raw)
+        items = raw.items() if isinstance(raw, dict) else ((t["Key"], t["Value"]) for t in raw)
         return {str(k): str(v) for k, v in items if not str(k).startswith("aws:")}
 
 

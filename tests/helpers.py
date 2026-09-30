@@ -81,9 +81,7 @@ def inventory_from_template(
     path = Path(path)
     text = path.read_text()
     tpl = cfn.load(text)
-    parameters = {
-        k: _synth_param(k, v) for k, v in (tpl.get("Parameters") or {}).items()
-    }
+    parameters = {k: _synth_param(k, v) for k, v in (tpl.get("Parameters") or {}).items()}
     params_file = path.with_name(path.name.replace(".stack.yml", ".params.json"))
     if params_file != path and params_file.exists():
         import json

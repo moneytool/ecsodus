@@ -127,9 +127,8 @@ def build_plan(inv: Inventory) -> MigrationPlan:
         handoff = plan.stacks[stack.name].handoff
         for rp in mapped[stack.name]:
             if not handoff and rp.fate in (IMPORT, BLOCKED):
-                rp.reason = (
-                    f"stack kept ({'; '.join(plan.stacks[stack.name].kept_because)})"
-                    + (f"; would be: {rp.fate}" if rp.fate != IMPORT else "")
+                rp.reason = f"stack kept ({'; '.join(plan.stacks[stack.name].kept_because)})" + (
+                    f"; would be: {rp.fate}" if rp.fate != IMPORT else ""
                 )
                 rp.fate = RETAIN_UNDER_EXISTING_OWNER
                 rp.spec = None
@@ -161,14 +160,26 @@ def _map_stack(
             exists = resolver.resource_exists(res.logical_id)
         except Unresolvable as exc:
             out.append(
-                ResourcePlan(stack.name, res.logical_id, res.type, res.physical_id, BLOCKED,
-                             f"condition unresolved: {exc}")
+                ResourcePlan(
+                    stack.name,
+                    res.logical_id,
+                    res.type,
+                    res.physical_id,
+                    BLOCKED,
+                    f"condition unresolved: {exc}",
+                )
             )
             continue
         if not exists or not res.physical_id:
             out.append(
-                ResourcePlan(stack.name, res.logical_id, res.type, res.physical_id, CONDITION_OFF,
-                             "not created in this deployment")
+                ResourcePlan(
+                    stack.name,
+                    res.logical_id,
+                    res.type,
+                    res.physical_id,
+                    CONDITION_OFF,
+                    "not created in this deployment",
+                )
             )
             continue
         result = tfmap.map_resource(inv, stack, resolver, res, body)
@@ -178,21 +189,40 @@ def _map_stack(
                 name += "_x"
             names.add(name)
             out.append(
-                ResourcePlan(stack.name, res.logical_id, res.type, res.physical_id, IMPORT,
-                             "" if result.fidelity == "full" else "partial argument coverage",
-                             f"{result.tf_type}.{name}", result)
+                ResourcePlan(
+                    stack.name,
+                    res.logical_id,
+                    res.type,
+                    res.physical_id,
+                    IMPORT,
+                    "" if result.fidelity == "full" else "partial argument coverage",
+                    f"{result.tf_type}.{name}",
+                    result,
+                )
             )
         else:
             out.append(
-                ResourcePlan(stack.name, res.logical_id, res.type, res.physical_id, result.fate,
-                             result.reason)
+                ResourcePlan(
+                    stack.name,
+                    res.logical_id,
+                    res.type,
+                    res.physical_id,
+                    result.fate,
+                    result.reason,
+                )
             )
     # Stack resources CloudFormation reports but the template no longer lists are suspicious.
     for lid in bodies:
         if stack.resource(lid) is None and resolver.resource_exists(lid):
             out.append(
-                ResourcePlan(stack.name, lid, bodies[lid].get("Type", "?"), None, BLOCKED,
-                             "in template but not in DescribeStackResources")
+                ResourcePlan(
+                    stack.name,
+                    lid,
+                    bodies[lid].get("Type", "?"),
+                    None,
+                    BLOCKED,
+                    "in template but not in DescribeStackResources",
+                )
             )
     return out
 
@@ -260,7 +290,8 @@ def _propagate(inv: Inventory, plan: MigrationPlan) -> None:
         key = f"{s.env}/{s.workload}"
         if key not in plan.workload_status:
             plan.workload_status[key] = (
-                "migrating" if plan.stacks[s.name].handoff
+                "migrating"
+                if plan.stacks[s.name].handoff
                 else "kept: " + "; ".join(plan.stacks[s.name].kept_because)
             )
 
@@ -274,7 +305,7 @@ def _closure(plan: MigrationPlan) -> None:
     inv = plan.inventory
     for rp in plan.imports():
         stack = inv.stacks[rp.stack]
-        body = (cfn.load(stack.template_body)["Resources"].get(rp.logical_id) or {})
+        body = cfn.load(stack.template_body)["Resources"].get(rp.logical_id) or {}
         refs = cfn.references(body.get("Properties") or {})
         for lid in refs & cleanup_by_stack.get(rp.stack, set()):
             target = stack.resource(lid)
@@ -329,9 +360,14 @@ def _side_effects(stack: Stack, template: dict[str, Any], resolver: Resolver) ->
         rtype = body.get("Type", "")
         policy = body.get("DeletionPolicy", "Delete")
         if rtype.startswith("Custom::"):
-            info = knowledge.CUSTOM_RESOURCES.get(rtype)
-            if info and info.get("destructive"):
-                out.append(f"{lid} ({rtype}): Delete handler {info.get('delete_behaviour', '')}")
+            info = knowledge.CUSTOM_RESOURCES.get(rtype) or {}
+            variants = [v for v in info.get("variants", ()) if lid in v.get("logical_ids", ())]
+            variants = variants or list(info.get("variants", ()))
+            if info.get("destructive") and variants:
+                behaviour = " / ".join(sorted({v.get("delete_behaviour", "") for v in variants}))
+                out.append(f"{lid} ({rtype}): Delete handler: {behaviour}")
+            elif not info:
+                out.append(f"{lid} ({rtype}): unknown custom resource; Delete behaviour unknown")
             continue
         if policy not in ("Retain", "RetainExceptOnCreate"):
             label = "snapshot then delete" if policy == "Snapshot" else "delete"
@@ -360,11 +396,15 @@ def _express_fit(inv: Inventory, stack: Stack, template: dict[str, Any]) -> Expr
         except (Unresolvable, ValueError):
             reasons.append("cpu/memory not resolvable")
     types = {b.get("Type") for b in res.values()}
-    if any(
-        b.get("Type") == "AWS::ElasticLoadBalancingV2::LoadBalancer"
-        and (b.get("Properties") or {}).get("Type") == "network"
-        for b in res.values()
-    ) or "AWS::ElasticLoadBalancingV2::LoadBalancer" in types and "NLB" in stack.template_body:
+    if (
+        any(
+            b.get("Type") == "AWS::ElasticLoadBalancingV2::LoadBalancer"
+            and (b.get("Properties") or {}).get("Type") == "network"
+            for b in res.values()
+        )
+        or "AWS::ElasticLoadBalancingV2::LoadBalancer" in types
+        and "NLB" in stack.template_body
+    ):
         reasons.append("uses a Network Load Balancer")
     if "ServiceConnectConfiguration" in stack.template_body:
         reasons.append("uses Service Connect")

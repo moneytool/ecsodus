@@ -40,10 +40,19 @@ TAG_APP = "copilot-application"
 TAG_ENV = "copilot-environment"
 TAG_SVC = "copilot-service"
 LIVE_STATUSES = [
-    "CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "IMPORT_COMPLETE",
-    "IMPORT_ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE", "UPDATE_IN_PROGRESS",
-    "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS", "UPDATE_ROLLBACK_IN_PROGRESS",
-    "UPDATE_ROLLBACK_FAILED", "DELETE_FAILED", "CREATE_IN_PROGRESS", "REVIEW_IN_PROGRESS",
+    "CREATE_COMPLETE",
+    "UPDATE_COMPLETE",
+    "UPDATE_ROLLBACK_COMPLETE",
+    "IMPORT_COMPLETE",
+    "IMPORT_ROLLBACK_COMPLETE",
+    "ROLLBACK_COMPLETE",
+    "UPDATE_IN_PROGRESS",
+    "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS",
+    "UPDATE_ROLLBACK_IN_PROGRESS",
+    "UPDATE_ROLLBACK_FAILED",
+    "DELETE_FAILED",
+    "CREATE_IN_PROGRESS",
+    "REVIEW_IN_PROGRESS",
 ]
 
 
@@ -90,7 +99,9 @@ def inventory(
         elif d["StackName"] == f"{app}-infrastructure-roles":
             stack.kind = APP
         else:
-            inv.unavailable.append({"stack": d["StackName"], "reason": "unrecognised Copilot stack"})
+            inv.unavailable.append(
+                {"stack": d["StackName"], "reason": "unrecognised Copilot stack"}
+            )
             continue
         inv.stacks[stack.name] = stack
 
@@ -123,9 +134,7 @@ def inventory(
     for s in inv.stacks.values():
         if s.kind == WORKLOAD and s.workload and s.env:
             migrate = not ({s.workload, f"{s.env}/{s.workload}"} & keep)
-            inv.workloads.append(
-                Workload(s.workload, s.workload_type or "unknown", s.env, migrate)
-            )
+            inv.workloads.append(Workload(s.workload, s.workload_type or "unknown", s.env, migrate))
     inv.ssm_parameters = _ssm_parameter_names(clients, app)
     live_reads.read_live(clients, inv)
     inv.out_of_band = _out_of_band(clients, inv)
@@ -151,8 +160,9 @@ def _stack_from(cfn: Any, d: dict[str, Any]) -> Stack:
             r.get("PhysicalResourceId"),
             r.get("ResourceStatus", ""),
         )
-        for r in paginate(cfn, "list_stack_resources", "StackResourceSummaries",
-                          StackName=d["StackId"])
+        for r in paginate(
+            cfn, "list_stack_resources", "StackResourceSummaries", StackName=d["StackId"]
+        )
     ]
     outputs, exports = {}, {}
     for o in d.get("Outputs") or []:
@@ -166,8 +176,10 @@ def _stack_from(cfn: Any, d: dict[str, Any]) -> Stack:
         stack_id=d["StackId"],
         status=d.get("StackStatus", ""),
         template_body=body,
-        parameters={p["ParameterKey"]: p.get("ResolvedValue", p.get("ParameterValue", ""))
-                    for p in d.get("Parameters") or []},
+        parameters={
+            p["ParameterKey"]: p.get("ResolvedValue", p.get("ParameterValue", ""))
+            for p in d.get("Parameters") or []
+        },
         outputs=outputs,
         exports=exports,
         tags={t["Key"]: t["Value"] for t in d.get("Tags") or []},
@@ -195,21 +207,27 @@ def _stackset(clients: Clients, inv: Inventory, app: str) -> None:
         template_body=body if isinstance(body, str) else json.dumps(body, indent=2),
         administration_role_arn=admin_arn,
         execution_role_name=ss.get("ExecutionRoleName", ""),
-        parameters={p["ParameterKey"]: p.get("ParameterValue", "")
-                    for p in ss.get("Parameters") or []},
+        parameters={
+            p["ParameterKey"]: p.get("ParameterValue", "") for p in ss.get("Parameters") or []
+        },
         capabilities=list(ss.get("Capabilities") or []),
         instances=[
-            {"account": i.get("Account", ""), "region": i.get("Region", ""),
-             "stack_id": i.get("StackId", "")}
+            {
+                "account": i.get("Account", ""),
+                "region": i.get("Region", ""),
+                "stack_id": i.get("StackId", ""),
+            }
             for i in instances
         ],
     )
     for inst in instances:
         if inst.get("Account") != inv.account or inst.get("Region") != inv.region:
-            inv.unavailable.append({
-                "stackset_instance": f"{inst.get('Account')}/{inst.get('Region')}",
-                "reason": "instance in another account/region: multi-account is blocked in v0.1",
-            })
+            inv.unavailable.append(
+                {
+                    "stackset_instance": f"{inst.get('Account')}/{inst.get('Region')}",
+                    "reason": "instance in another account/region: multi-account is blocked in v0.1",
+                }
+            )
             continue
         sid = inst.get("StackId")
         if not sid:
@@ -225,9 +243,14 @@ def _ssm_metadata(clients: Clients, app: str) -> dict[str, Any]:
     ssm = clients("ssm")
     types: dict[str, str] = {}
     envs: list[str] = []
-    for p in paginate(ssm, "get_parameters_by_path", "Parameters",
-                      Path=f"/copilot/applications/{app}/", Recursive=True,
-                      WithDecryption=False):
+    for p in paginate(
+        ssm,
+        "get_parameters_by_path",
+        "Parameters",
+        Path=f"/copilot/applications/{app}/",
+        Recursive=True,
+        WithDecryption=False,
+    ):
         if p.get("Type") != "String":
             continue
         name = p["Name"]
@@ -246,8 +269,12 @@ def _ssm_parameter_names(clients: Clients, app: str) -> list[dict[str, str]]:
     """Names and types of `copilot secret init` parameters: metadata only, never values."""
     ssm = clients("ssm")
     out = []
-    for p in paginate(ssm, "describe_parameters", "Parameters",
-                      ParameterFilters=[{"Key": "tag:copilot-application", "Values": [app]}]):
+    for p in paginate(
+        ssm,
+        "describe_parameters",
+        "Parameters",
+        ParameterFilters=[{"Key": "tag:copilot-application", "Values": [app]}],
+    ):
         out.append({"name": p["Name"], "type": p.get("Type", "")})
     return out
 
@@ -257,29 +284,43 @@ def _out_of_band(clients: Clients, inv: Inventory) -> list[OutOfBand]:
     found: list[OutOfBand] = []
     acm = clients("acm")
     creators = {
-        s.name: [r.logical_id for r in s.resources if "Cert" in r.type and r.type.startswith("Custom::")]
+        s.name: [
+            r.logical_id for r in s.resources if "Cert" in r.type and r.type.startswith("Custom::")
+        ]
         for s in inv.stacks.values()
     }
     for cert in paginate(acm, "list_certificates", "CertificateSummaryList"):
         arn = cert["CertificateArn"]
-        tags = {t["Key"]: t["Value"]
-                for t in acm.list_tags_for_certificate(CertificateArn=arn).get("Tags") or []}
+        tags = {
+            t["Key"]: t["Value"]
+            for t in acm.list_tags_for_certificate(CertificateArn=arn).get("Tags") or []
+        }
         if tags.get(TAG_APP) != inv.app:
             continue
         stack = next(
-            (s for s in inv.stacks.values()
-             if s.env == tags.get(TAG_ENV) and s.workload == tags.get(TAG_SVC)),
+            (
+                s
+                for s in inv.stacks.values()
+                if s.env == tags.get(TAG_ENV) and s.workload == tags.get(TAG_SVC)
+            ),
             None,
         )
         by = f"{stack.name}/{(creators.get(stack.name) or ['?'])[0]}" if stack else "unknown"
         detail = acm.describe_certificate(CertificateArn=arn)["Certificate"]
-        found.append(OutOfBand("acm_certificate", arn, by, {
-            "DomainName": detail.get("DomainName"),
-            "SubjectAlternativeNames": detail.get("SubjectAlternativeNames", []),
-            "InUseBy": detail.get("InUseBy", []),
-            "DomainValidationOptions": [
-                {k: o.get(k) for k in ("DomainName", "ResourceRecord")}
-                for o in detail.get("DomainValidationOptions") or []
-            ],
-        }))
+        found.append(
+            OutOfBand(
+                "acm_certificate",
+                arn,
+                by,
+                {
+                    "DomainName": detail.get("DomainName"),
+                    "SubjectAlternativeNames": detail.get("SubjectAlternativeNames", []),
+                    "InUseBy": detail.get("InUseBy", []),
+                    "DomainValidationOptions": [
+                        {k: o.get(k) for k in ("DomainName", "ResourceRecord")}
+                        for o in detail.get("DomainValidationOptions") or []
+                    ],
+                },
+            )
+        )
     return found
