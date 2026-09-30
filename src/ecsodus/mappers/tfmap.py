@@ -98,10 +98,39 @@ class Ctx:
         return self.resolver.resolve(self.props[key])
 
     def tags(self, key: str = "Tags") -> dict[str, str]:
-        """Resolved tags as a map, without ``aws:`` tags (the provider ignores them)."""
+        """The resource's tags as a map, without ``aws:`` tags (the provider ignores them).
+
+        CloudFormation copies stack-level tags onto every taggable resource, so template tags
+        alone would show a diff on import. Live tags win when the live read carries them
+        (exact); otherwise stack tags are merged under the template's own tags.
+        """
+        live_tags = _live_tags(self.live)
+        if live_tags is not None:
+            return {k: v for k, v in live_tags.items() if not k.startswith("aws:")}
         raw = self.r(key, [])
         items = raw.items() if isinstance(raw, dict) else ((t["Key"], t["Value"]) for t in raw)
-        return {str(k): str(v) for k, v in items if not str(k).startswith("aws:")}
+        merged = {k: v for k, v in self.stack.tags.items() if not k.startswith("aws:")}
+        merged.update({str(k): str(v) for k, v in items if not str(k).startswith("aws:")})
+        return merged
+
+
+def _live_tags(live: dict[str, Any]) -> dict[str, str] | None:
+    for field_name in ("Tags", "tags", "TagList", "TagSet"):
+        raw = live.get(field_name)
+        if raw is None:
+            continue
+        if isinstance(raw, dict):
+            return {str(k): str(v) for k, v in raw.items()}
+        if isinstance(raw, list):
+            out: dict[str, str] = {}
+            for t in raw:
+                if isinstance(t, dict):
+                    k = t.get("Key", t.get("key"))
+                    v = t.get("Value", t.get("value"))
+                    if k is not None:
+                        out[str(k)] = str(v if v is not None else "")
+            return out
+    return None
 
 
 def tf_name(stack: Stack, logical_id: str) -> str:
