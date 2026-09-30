@@ -7,6 +7,7 @@ IDs can be exercised without AWS. Parameter values come from the template defaul
 
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -18,17 +19,22 @@ ACCOUNT = "123456789012"
 REGION = "us-west-2"
 
 
+def _h(text: str) -> int:
+    """Stable across runs (unlike hash(), which is salted per process)."""
+    return zlib.crc32(text.encode())
+
+
 def fake_physical_id(stack: str, lid: str, rtype: str) -> str:
     low = lid.lower()
     arn = f"arn:aws:{{svc}}:{REGION}:{ACCOUNT}:{{res}}"
     shapes: dict[str, str] = {
-        "AWS::EC2::VPC": f"vpc-0{abs(hash(low)) % 10**12:012d}",
-        "AWS::EC2::Subnet": f"subnet-0{abs(hash(low)) % 10**12:012d}",
-        "AWS::EC2::SecurityGroup": f"sg-0{abs(hash(low)) % 10**12:012d}",
-        "AWS::EC2::InternetGateway": f"igw-0{abs(hash(low)) % 10**12:012d}",
-        "AWS::EC2::RouteTable": f"rtb-0{abs(hash(low)) % 10**12:012d}",
-        "AWS::EC2::NatGateway": f"nat-0{abs(hash(low)) % 10**12:012d}",
-        "AWS::EC2::EIP": f"52.{abs(hash(low)) % 250}.1.1",
+        "AWS::EC2::VPC": f"vpc-0{_h(low) % 10**12:012d}",
+        "AWS::EC2::Subnet": f"subnet-0{_h(low) % 10**12:012d}",
+        "AWS::EC2::SecurityGroup": f"sg-0{_h(low) % 10**12:012d}",
+        "AWS::EC2::InternetGateway": f"igw-0{_h(low) % 10**12:012d}",
+        "AWS::EC2::RouteTable": f"rtb-0{_h(low) % 10**12:012d}",
+        "AWS::EC2::NatGateway": f"nat-0{_h(low) % 10**12:012d}",
+        "AWS::EC2::EIP": f"52.{_h(low) % 250}.1.1",
         "AWS::ECS::Cluster": f"{stack}-Cluster-{low[:8]}",
         "AWS::ECS::Service": arn.format(svc="ecs", res=f"service/{stack}-Cluster/{stack}-{low}"),
         "AWS::ECS::TaskDefinition": arn.format(svc="ecs", res=f"task-definition/{stack}:3"),

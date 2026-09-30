@@ -1,0 +1,87 @@
+# Concrete render of tests/fixtures/copilot/templates/app/cf.yml (AWS Copilot CLI, Apache-2.0;
+# see ../copilot/NOTICE-copilot-cli) with App=demo, one extra account 210987654321 and one
+# workload "api" with ECR. Policy statements trimmed.
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: !Ref AWS::StackName
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:*"
+            Resource: "*"
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+                - !Sub arn:${AWS::Partition}:iam::210987654321:root
+            Action:
+              - kms:Decrypt
+            Resource: "*"
+  PipelineBuiltArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: PipelineBuiltArtifactBucket
+    Properties:
+      Bucket: !Ref PipelineBuiltArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ForceHTTPS
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !Sub ${PipelineBuiltArtifactBucket.Arn}
+              - !Sub ${PipelineBuiltArtifactBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+  PipelineBuiltArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'aws:kms'
+              KMSMasterKeyID: !GetAtt KMSKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireLocalAssets
+            Status: Enabled
+            Prefix: local-assets
+            ExpirationInDays: 30
+  ECRRepoapi:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: demo/api
+      Tags:
+        - Key: copilot-service
+          Value: api
+      RepositoryPolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowPushPull
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action:
+              - ecr:GetDownloadUrlForLayer

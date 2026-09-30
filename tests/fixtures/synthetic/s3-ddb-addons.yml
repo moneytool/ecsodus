@@ -1,0 +1,94 @@
+# Concrete render of tests/fixtures/copilot/templates/addons/s3/cf.yml and
+# tests/fixtures/copilot/templates/addons/ddb/cf.yml (AWS Copilot CLI, Apache-2.0; see
+# ../copilot/NOTICE-copilot-cli) with Name=assets (bucket) and Name=orders (table, sort key and
+# one LSI).
+Parameters:
+  App:
+    Type: String
+  Env:
+    Type: String
+  Name:
+    Type: String
+Resources:
+  assetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      AccessControl: Private
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNonCurrentObjects
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+  assetsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ForceHTTPS
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub ${assetsBucket.Arn}/*
+              - !Sub ${assetsBucket.Arn}
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+      Bucket: !Ref assetsBucket
+  assetsAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: !Sub
+        - Grants CRUD access to the S3 bucket ${Bucket}
+        - { Bucket: !Ref assetsBucket }
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3ListAction
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub ${assetsBucket.Arn}
+  orders:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${App}-${Env}-${Name}-orders
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: "S"
+        - AttributeName: sk
+          AttributeType: "S"
+        - AttributeName: created
+          AttributeType: "N"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      LocalSecondaryIndexes:
+        - IndexName: byCreated
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: created
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL

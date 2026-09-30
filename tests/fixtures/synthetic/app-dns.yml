@@ -1,0 +1,29 @@
+# Excerpt of tests/fixtures/copilot/templates/app/app.yml (AWS Copilot CLI, Apache-2.0; see
+# ../copilot/NOTICE-copilot-cli): the delegated hosted zone and its NS delegation record.
+Parameters:
+  AppName:
+    Type: String
+  AppDomainName:
+    Type: String
+  AppDomainHostedZoneID:
+    Type: String
+Conditions:
+  DelegateDNS: !Not [!Equals [!Ref AppDomainName, ""]]
+Resources:
+  AppHostedZone:
+    Type: AWS::Route53::HostedZone
+    Condition: DelegateDNS
+    Properties:
+      HostedZoneConfig:
+        Comment: !Sub "Hosted zone for copilot application ${AppName}: ${AppName}.${AppDomainName}"
+      Name: !Sub ${AppName}.${AppDomainName}
+  AppDomainDelegationRecordSet:
+    Type: AWS::Route53::RecordSet
+    Condition: DelegateDNS
+    Properties:
+      HostedZoneId: !Sub ${AppDomainHostedZoneID}
+      Comment: !Sub "Record for copilot domain delegation for application ${AppDomainName}"
+      Name: !Sub ${AppName}.${AppDomainName}.
+      Type: NS
+      TTL: '900'
+      ResourceRecords: !GetAtt AppHostedZone.NameServers

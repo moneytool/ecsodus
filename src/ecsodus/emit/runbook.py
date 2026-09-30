@@ -287,6 +287,20 @@ def render(
     w("ecsodus check plan-steady.json --manifest ecsodus-manifest.json --phase steady")
     w("(umask 077 && terraform state pull > checkpoint.tfstate)")
     w("```\n")
+    from ecsodus.emit.terraform import hardening_edits
+
+    hardening = hardening_edits(plan)
+    if hardening:
+        w("### 4b. Harden import-unread arguments (after the steady check passes)\n")
+        w(
+            "The provider does not read these arguments back on import, so they are under "
+            "`ignore_changes` for the import. Once the steady check passes, remove each from "
+            "`ignore_changes`, run a plan, and confirm it shows **only** in-place updates of "
+            "exactly these arguments (state-only; no API change), then apply:\n"
+        )
+        for address, attrs in hardening:
+            w(f"- `{address}`: {', '.join(attrs)}")
+        w("")
     w(
         "**Rollback before step 5:** `terraform state rm` each imported address "
         "(listed in `ecsodus-manifest.json`). CloudFormation still owns everything, and the "

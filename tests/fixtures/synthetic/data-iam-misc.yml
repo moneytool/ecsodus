@@ -1,0 +1,184 @@
+# Synthetic (not Copilot-generated): data/IAM/DNS resource types that Copilot's templates do not
+# use but customer addons may. Exercised by tests/unit/test_tf_data.py and test_tf_iam_dns.py.
+Parameters:
+  App:
+    Type: String
+    Default: demo
+Resources:
+  Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /demo/test/api/feature-flag
+      Type: String
+      Value: "on"
+      Description: A plain String parameter
+      Tags:
+        copilot-application: demo
+  SecureParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /demo/test/api/nope
+      Type: SecureString
+      Value: never-emitted
+  Key:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: data key
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+  KeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/demo-data
+      TargetKeyId: !Ref Key
+  ApiSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: demo/test/api-key
+      SecretString: '{"key":"super-secret-literal"}'
+      KmsKeyId: !Ref Key
+  ApiSecretRotation:
+    Type: AWS::SecretsManager::RotationSchedule
+    Properties:
+      SecretId: !Ref ApiSecret
+      RotationLambdaARN: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:rotate
+      RotationRules:
+        AutomaticallyAfterDays: 30
+  HostedRotation:
+    Type: AWS::SecretsManager::RotationSchedule
+    Properties:
+      SecretId: !Ref ApiSecret
+      HostedRotationLambda:
+        RotationType: PostgreSQLSingleUser
+      RotationRules:
+        ScheduleExpression: rate(7 days)
+  Db:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: postgres
+      EngineVersion: '15.4'
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: '20'
+      MasterUsername: postgres
+      MasterUserPassword: '{{resolve:secretsmanager:demo/test/db:SecretString:password}}'
+      DBParameterGroupName: !Ref DbParams
+      MultiAZ: false
+      PubliclyAccessible: false
+  DbParams:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: demo pg
+      Family: postgres15
+      Parameters:
+        rds.force_ssl: 1
+        log_min_duration_statement: '500'
+  Provisioned:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      GlobalSecondaryIndexes:
+        - IndexName: byEmail
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expires
+        Enabled: true
+      DeletionProtectionEnabled: true
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: demo-worker
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+  Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref Role
+  SharedPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: shared
+      Roles:
+        - !Ref Role
+        - other-role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: s3:ListAllMyBuckets
+            Resource: '*'
+  AttachedManaged:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: demo-attached
+      Path: /copilot/
+      Roles:
+        - !Ref Role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sqs:SendMessage
+            Resource: '*'
+  Weighted:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: Z0123456789ABCDEFGHIJ
+      Name: api.demo.example.com.
+      Type: CNAME
+      TTL: 60
+      SetIdentifier: blue
+      Weight: 10
+      ResourceRecords:
+        - blue.demo.example.com
+  ByZoneName:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: example.com.
+      Name: www.example.com.
+      Type: CNAME
+      TTL: 60
+      ResourceRecords:
+        - example.com
+  Cert:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: api.demo.example.com
+      SubjectAlternativeNames:
+        - '*.api.demo.example.com'
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: api.demo.example.com
+          HostedZoneId: Z0123456789ABCDEFGHIJ

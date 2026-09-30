@@ -35,20 +35,69 @@ def header(source: str) -> str:
     )
 
 
-def _with_lifecycle(body: hcl.Body, prevent_destroy: bool) -> hcl.Body:
-    if not prevent_destroy:
+# Arguments the AWS provider does not read back on import (write-only or import-defaulted).
+# Declaring them without ignore_changes makes the first plan an in-place update, which the
+# import-only gate rejects. They are ignored here and hardened in RUNBOOK step 4b.
+IMPORT_UNREAD: dict[str, tuple[str, ...]] = {
+    "aws_rds_cluster": (
+        "skip_final_snapshot",
+        "final_snapshot_identifier",
+        "manage_master_user_password",
+    ),
+    "aws_db_instance": (
+        "skip_final_snapshot",
+        "final_snapshot_identifier",
+        "manage_master_user_password",
+    ),
+    "aws_secretsmanager_secret": ("recovery_window_in_days", "force_overwrite_replica_secret"),
+    "aws_secretsmanager_secret_rotation": ("rotate_immediately",),
+}
+
+
+def _existing_ignores(block: Block) -> list[str]:
+    for k, v in block.body:
+        if k == "ignore_changes" and isinstance(v, Raw):
+            inner = v.expr.strip().removeprefix("[").removesuffix("]")
+            return [x.strip() for x in inner.split(",") if x.strip()]
+    return []
+
+
+def _with_lifecycle(tf_type: str, body: hcl.Body, prevent_destroy: bool) -> hcl.Body:
+    """Merge prevent_destroy and import-unread ignore_changes into one lifecycle block."""
+    set_args = {k for k, _ in body}
+    extra = [a for a in IMPORT_UNREAD.get(tf_type, ()) if a in set_args]
+    existing = next((v for k, v in body if k == "lifecycle" and isinstance(v, Block)), None)
+    ignores = (_existing_ignores(existing) if existing else []) + extra
+    ignores = list(dict.fromkeys(ignores))
+    if not prevent_destroy and not extra:
         return body
-    out: hcl.Body = []
-    merged = False
-    for k, v in body:
-        if k == "lifecycle" and isinstance(v, Block):
-            v = Block(
-                [("prevent_destroy", True), *[(a, b) for a, b in v.body if a != "prevent_destroy"]]
-            )
-            merged = True
-        out.append((k, v))
-    if not merged:
-        out.append(("lifecycle", Block([("prevent_destroy", True)])))
+    others = [
+        (a, b)
+        for a, b in (existing.body if existing else [])
+        if a not in ("prevent_destroy", "ignore_changes")
+    ]
+    lifecycle: hcl.Body = []
+    if prevent_destroy:
+        lifecycle.append(("prevent_destroy", True))
+    if ignores:
+        lifecycle.append(("ignore_changes", Raw(f"[{', '.join(ignores)}]")))
+    lifecycle += others
+    out = [(k, v) for k, v in body if k != "lifecycle"]
+    out.append(("lifecycle", Block(lifecycle)))
+    return out
+
+
+def hardening_edits(plan: MigrationPlan) -> list[tuple[str, list[str]]]:
+    """Addresses whose import-unread arguments are ignored now and hardened after import."""
+    out = []
+    for rp in plan.imports():
+        if rp.spec is None or rp.tf_address is None:
+            continue
+        tf_type = rp.tf_address.split(".", 1)[0]
+        set_args = {k for k, _ in rp.spec.body}
+        attrs = [a for a in IMPORT_UNREAD.get(tf_type, ()) if a in set_args]
+        if attrs:
+            out.append((rp.tf_address, attrs))
     return out
 
 
@@ -71,7 +120,7 @@ def render_stack(plan: MigrationPlan, stack_name: str) -> str:
                 ],
             )
         )
-        body = _with_lifecycle(rp.spec.body, rp.spec.stateful)
+        body = _with_lifecycle(tf_type, rp.spec.body, rp.spec.stateful)
         parts.append(hcl.block("resource", (tf_type, name), body))
         parts.append("")
     return "\n".join(parts).rstrip() + "\n"

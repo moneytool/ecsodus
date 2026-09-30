@@ -1,0 +1,103 @@
+# Concrete render of tests/fixtures/copilot/templates/addons/aurora/serverlessv2.yml
+# (AWS Copilot CLI, Apache-2.0; see ../copilot/NOTICE-copilot-cli) with ClusterName=db,
+# Engine=PostgreSQL, InitialDBName=main, Envs=[test], no ParameterGroup.
+Parameters:
+  App:
+    Type: String
+  Env:
+    Type: String
+  Name:
+    Type: String
+  dbDBName:
+    Type: String
+    Default: main
+Mappings:
+  dbEnvScalingConfigurationMap:
+    test:
+      "DBMinCapacity": 0.5
+      "DBMaxCapacity": 8
+    All:
+      "DBMinCapacity": 0.5
+      "DBMaxCapacity": 8
+Resources:
+  dbDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Group of Copilot private subnets for Aurora Serverless v2 cluster.
+      SubnetIds:
+        !Split [',', { 'Fn::ImportValue': !Sub '${App}-${Env}-PrivateSubnets' }]
+  dbSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Sub 'The Security Group for ${Name} to access Aurora Serverless v2 cluster db.'
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${App}-${Env}-VpcId'
+  dbDBClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: The Security Group for the Aurora Serverless v2 cluster.
+      SecurityGroupIngress:
+        - ToPort: 5432
+          FromPort: 5432
+          IpProtocol: tcp
+          Description: !Sub 'From the Aurora Security Group of the workload ${Name}.'
+          SourceSecurityGroupId: !Ref dbSecurityGroup
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${App}-${Env}-VpcId'
+  dbAuroraSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub Aurora main user secret for ${AWS::StackName}
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres"}'
+        GenerateStringKey: "password"
+        ExcludePunctuation: true
+        IncludeSpace: false
+        PasswordLength: 16
+  dbDBClusterParameterGroup:
+    Type: 'AWS::RDS::DBClusterParameterGroup'
+    Properties:
+      Description: !Ref 'AWS::StackName'
+      Family: 'aurora-postgresql16'
+      Parameters:
+        client_encoding: 'UTF8'
+  dbDBCluster:
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      MasterUsername:
+        !Join [ "",  [ '{{resolve:secretsmanager:', !Ref dbAuroraSecret, ":SecretString:username}}" ]]
+      MasterUserPassword:
+        !Join [ "",  [ '{{resolve:secretsmanager:', !Ref dbAuroraSecret, ":SecretString:password}}" ]]
+      DatabaseName: !Ref dbDBName
+      Engine: 'aurora-postgresql'
+      EngineVersion: '16.2'
+      DBClusterParameterGroupName: !Ref dbDBClusterParameterGroup
+      DBSubnetGroupName: !Ref dbDBSubnetGroup
+      Port: 5432
+      VpcSecurityGroupIds:
+        - !Ref dbDBClusterSecurityGroup
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !FindInMap [dbEnvScalingConfigurationMap, All, DBMinCapacity]
+        MaxCapacity: !FindInMap [dbEnvScalingConfigurationMap, All, DBMaxCapacity]
+  dbDBWriterInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBClusterIdentifier: !Ref dbDBCluster
+      DBInstanceClass: db.serverless
+      Engine: 'aurora-postgresql'
+      PromotionTier: 1
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+  dbSecretAuroraClusterAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref dbAuroraSecret
+      TargetId: !Ref dbDBCluster
+      TargetType: AWS::RDS::DBCluster
+Outputs:
+  dbSecret:
+    Value: !Ref dbAuroraSecret
