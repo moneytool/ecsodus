@@ -194,3 +194,25 @@ def test_terraform_validate(generated: Path) -> None:
         timeout=300,
     )
     assert res.returncode == 0, res.stdout + res.stderr
+
+
+def test_runbook_blocks_stop_at_a_failing_check(generated: Path, tmp_path: Path) -> None:
+    """Run a real generated block with a failing `ecsodus` and a recording `aws` stub."""
+    import re
+
+    rb = (generated / "RUNBOOK.md").read_text()
+    block = next(b for b in re.findall(r"```bash\n(.*?)```", rb, re.S) if "execute-change-set" in b)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls.log"
+    (bin_dir / "ecsodus").write_text('#!/bin/sh\necho "ecsodus $*" >> ' + str(log) + "\nexit 1\n")
+    (bin_dir / "aws").write_text('#!/bin/sh\necho "aws $*" >> ' + str(log) + "\n")
+    (bin_dir / "jq").write_text("#!/bin/sh\n")
+    for f in bin_dir.iterdir():
+        f.chmod(0o755)
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    res = subprocess.run(["bash", "-c", block], cwd=generated, env=env, capture_output=True)
+    calls = log.read_text()
+    assert res.returncode != 0
+    assert "ecsodus check --changeset" in calls
+    assert "execute-change-set" not in calls

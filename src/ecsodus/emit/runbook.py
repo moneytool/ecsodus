@@ -2,8 +2,8 @@
 
 ecsodus never runs these. Every shell block runs in a fail-fast subshell
 (``( set -euo pipefail; umask 077; ... )``), so a failed check stops the block even when it is
-pasted into an interactive terminal, and every mutating command is additionally chained with
-``&&`` to the ecsodus check that gates it.
+pasted into an interactive terminal. Each check is its own line directly before the mutation it
+gates (a failing command on the left of ``&&`` would not stop a ``set -e`` shell).
 
 Step 5 (teardown) is only emitted with ``--i-understand-teardown-is-unverified`` until the real
 AWS end-to-end run has settled the open questions (PLAN §6). Steps 6 and 7 are always emitted,
@@ -49,8 +49,19 @@ class _Doc:
         self.w("(")
         self.w("set -euo pipefail")
         self.w("umask 077")
-        for c in commands:
+        # Checks and the mutations they gate are written as separate lines: under `set -e` a
+        # failing command on the left of `&&` does NOT stop the shell, a failing line does.
+        cmds = list(commands)
+        i = 0
+        while i < len(cmds):
+            c = cmds[i]
+            if c.endswith(" \\") and i + 1 < len(cmds) and cmds[i + 1].startswith("  && "):
+                self.w(c[:-2])
+                self.w(cmds[i + 1][5:])
+                i += 2
+                continue
             self.w(c)
+            i += 1
         self.w(")")
         self.w("```\n")
 
