@@ -1,0 +1,32 @@
+# Code review: Claude Opus 5.5 (read-only)
+
+(Verbatim final report, 2026-09-29, against commit 66f3245. Findings reproduced in a scratchpad export of HEAD.)
+
+## Verdict: fix first
+
+I reviewed HEAD `66f3245`. While I was reviewing, someone was editing the working tree: uncommitted changes appeared in `changeset.py`, `cli.py`, `retain_patch.py`, `copilot.py`, `fates.py`, `plan.py`, `aws.py`, `model.py`, `terraform.py`, plus a new `tf_oob.py`. Several of those edits look aimed at findings 2, 3, 5, 10, 11 and 13. **I did not review the uncommitted edits.** Everything below is against HEAD.
+
+**The retain patcher itself (priority 1) looks sound.** `verify_patch` compares the whole document after removing only the permitted fields, so every adversarial input I tried was either patched correctly or refused (comments, CRLF, anchors/aliases, merge keys, block scalars containing `#`, `Fn::If` policies with blank lines, flow values spanning lines, duplicate keys, multi-document files, tabs, BOM, quoted keys, `? ` explicit keys and multi-line plain values). There is one type-equality hole, finding 10. The gate and orchestration layers around the patcher are where the real problems are.
+
+## Findings
+
+1. **[P0] The runbook's re-inventory commands drop `--keep-on-copilot`, so after step 2 the kept workloads, their env and the app are all handed off** — `emit/runbook.py:147` and `:266`. Nothing carries the keep-set over; `--patch-bucket` and `--i-understand-teardown-is-unverified` are dropped the same way. Reproducer: `app(worker_migrates=False)` → regenerating from a fresh inventory gives a full hand-off while the operator keeps running `copilot svc deploy` for the worker. Fix: persist the keep-set and env scope and re-emit them exactly.
+2. **[P0] Environments outside the inventory are invisible, so the app stack and StackSet instance get handed off, imported and torn down while other envs still use them** — `sources/copilot.py:78-89`, `mappers/fates.py:280`, `emit/runbook.py:350-355`. `meta["envs"]` is collected but never used; StackSet instances elsewhere go into `inv.unavailable`, which nothing reads; step 5 runs `delete-stack-instances` across every account and region. Fix: treat every env in SSM that isn't inventoried, and every StackSet instance outside this account/region, as a kept consumer of the app layer; scope `delete-stack-instances` to this account and region.
+3. **[P1] `check --changeset` passes with only the root change set, and never checks the new `TemplateURL`** — `check/changeset.py:92-120`, `cli.py:151-160`. Reproduced: a root change set with an `AddonsStack` Modify carrying `ChangeSetId` and AfterValue `https://evil/x`, no nested change set → pass. Also `{"Status":"CREATE_IN_PROGRESS","Changes":[]}` → pass, `{"Status":"CREATE_PENDING"}` → pass. Fix: require every referenced `ChangeSetId`, `CREATE_COMPLETE` + `ExecutionStatus: AVAILABLE`, AfterValue equal to the manifest URL, and treat 0 accepted as not a pass.
+4. **[P1] Runbook bash blocks don't stop on failure** — `emit/runbook.py` (all blocks; `|| true` at :230). A failed gate doesn't stop `execute-change-set` or `terraform apply`; worst case, step 5.4 deletes the StackSet instance (ECR, KMS, artifact bucket) right after a failed `verify-retain`. Fix: `set -euo pipefail` per block and explicit patch commands in 5.4.
+5. **[P1] `check --phase steady` ignores the expected imports, so it passes vacuously** — `check/plan.py`. A state document, a `-target` plan and `{"errored": true}` all pass. Fix: require `resource_changes`, reject `errored`, require every expected address as a no-op.
+6. **[P1] Every `AWS::Lambda::Function` and `AWS::Lambda::Permission` is classed manual-cleanup, and step 6 tells the operator to delete them** — `mappers/tf_compute.py:99-106`, `emit/runbook.py:382-384`. User Lambdas in addons would be deleted. Fix: manual-cleanup only for the `ServiceToken` of a `Custom::*` in the same stack; otherwise blocked.
+7. **[P1] Templates with a `Transform` aren't handled** — inventory, patching and `verify-retain` all use `TemplateStage="Original"`; `Fn::ForEach` and merge keys raise an uncaught `KeyError`; `Fn::Transform: AWS::Include` at the `Resources` level gets `DeletionPolicy` injected. Fix: block any stack with a `Transform` in v0.1, or verify against the `Processed` stage.
+8. **[P1] StackSet teardown order and waits contradict §2.5 and §13.1** — the app stack is deleted before `delete-stack-instances`; no wait on the asynchronous operation; step 3a's wait is a single query and per-instance `SUCCEEDED` is never checked.
+9. **[P2] `verify-retain` can pass vacuously and skips the child SHA check** — `cli.py:201-239`.
+10. **[P2] `verify_patch` compares with Python `==`, so `true`, `1` and `1.0` count as equal** — `emit/retain_patch.py:208`. Fix: canonical JSON with types kept distinct.
+11. **[P2] The read-only guard has bypasses** — paginator path skips the decryption guard; `ssm.get_parameter_history(WithDecryption=True)` unguarded; `s3.get_object` and `lambda.get_function` allowed.
+12. **[P2] Secret-bearing files are exposed** — `retain-patches/*.yml` written 0644 and not gitignored; `.gitignore` misses `*.plan`, `cs-*.json`, `stackset-current.yml`, `regen/`; PLAN §2.2 vs `.tf` as deliverable needs a decision.
+13. **[P2] An unknown `--keep-on-copilot` name is silently ignored** — `sources/copilot.py:133-136`.
+14. **[P2] Stacks in some statuses are invisible instead of kept**; nested stacks two levels deep can be processed before their parent.
+15. **[P2] Step 2 (Protect) gaps** — standalone `DBInstance` gets no snapshot; no snapshot wait; Aurora members get instance-level deletion protection (UNSURE).
+16. **[P3] Patcher refusals and crashes (all fail-closed)** — NEL/LS/PS characters, lone-CR endings, JSON re-serialisation (`1e400`, `1.10`), `build_patches` patching kept stacks.
+17. **[P3] Change-set file handling** — `NextToken` not rejected; the `cs-{stack}*.json` glob matches prefix-sharing stacks; omitting `--stack` merges nested IDs.
+18. **[P3] Smaller gate and emitter issues** — steady rejects `forget` (the `removed` hand-off); HCL map keys not escaped for `${`; step 4b has no ecsodus gate.
+
+**Terraform mappers (priority 6):** an argument that forces replacement shows up as a replace, which the import gate rejects (or `prevent_destroy` errors the plan). The only ways a mismatch is hidden are `IMPORT_UNREAD` `ignore_changes` and the service's `task_definition`/`desired_count`. Mappers (~3,000 lines) were skimmed, not fully audited.
