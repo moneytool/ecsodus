@@ -29,9 +29,15 @@ All notable changes to this project are documented here. The format follows
   layering, and DeletionPolicy defaults.
 - Terraform mappers for the network, compute, data, IAM and DNS resource types that Copilot's
   LBWS, Backend, env and addon templates use.
+- `ecsodus verify-fresh`: a read-only check that the account, region and stacks still match the
+  manifest before import.
 - Offline tests:
   - real Copilot fixtures
   - a synthetic app
   - moto
   - golden snapshots
-  - `terraform validate`
+  - `terraform validate` on a full hand-off app
+
+### Security
+- Two independent code reviews and a verification review; every P0 and P1 finding is fixed
+  (`docs/council/code-review-v0.1/`).

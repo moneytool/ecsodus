@@ -71,6 +71,8 @@ environments.
 
 ## Documentation
 
+- [Project status](docs/STATUS.md): what is done and what is pending
+- [Worked example](docs/examples/): REPORT.md and RUNBOOK.md for a real Copilot app
 - [Quickstart](docs/guides/quickstart.md)
 - [How it works](docs/guides/how-it-works.md): fates, hand-off, retain patches and the checks
 - [Copilot custom resources and what their Delete handlers do](docs/knowledge/copilot-custom-resources.md)
