@@ -202,3 +202,52 @@ def test_cleanup_handle_sharing_an_imported_id_is_not_a_closure_error() -> None:
     )
     plan = build_plan(inv)
     assert plan.closure_errors == []
+
+
+def test_blocked_out_of_band_certificate_keeps_its_stack() -> None:
+    from ecsodus.model import OutOfBand
+
+    inv = app()
+    inv.out_of_band.append(
+        OutOfBand(
+            "acm_certificate", "arn:aws:acm:us-west-2:1:certificate/x", "demo-test/HTTPSCert", {}
+        )
+    )
+    plan = build_plan(inv)
+    assert not plan.stacks["demo-test"].handoff
+
+
+def test_unselected_env_without_workloads_is_kept() -> None:
+    import copy
+
+    inv = app()
+    env2 = copy.deepcopy(inv.stacks["demo-test"])
+    env2.name, env2.env = "demo-prod", "prod"
+    inv.stacks[env2.name] = env2
+    inv.selection = {"envs": ["test"], "keep_on_copilot": []}
+    plan = build_plan(inv)
+    assert not plan.stacks["demo-prod"].handoff
+    assert not plan.stacks["demo-infrastructure-roles"].handoff
+
+
+def test_dns_ownership_is_per_zone() -> None:
+    from ecsodus.mappers import tf_oob
+    from ecsodus.mappers.fates import ResourcePlan
+
+    zone = ResourcePlan("demo-test", "Zone", "AWS::Route53::HostedZone", "Z111", IMPORT)
+    live = {
+        "HostedZone": {"Name": "example.com."},
+        "RecordSets": [
+            {
+                "Name": "api.example.com.",
+                "Type": "A",
+                "TTL": 60,
+                "ResourceRecords": [{"Value": "1.2.3.4"}],
+            }
+        ],
+    }
+    other_zone_owner = {("z222", "api.example.com", "A")}
+    out = tf_oob.plan_zone_records(zone, live, other_zone_owner, set())
+    assert [r.fate for r in out] == [IMPORT]
+    same_zone_owner = {("z111", "api.example.com", "A")}
+    assert tf_oob.plan_zone_records(zone, live, same_zone_owner, set()) == []

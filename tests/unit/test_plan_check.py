@@ -87,3 +87,21 @@ def test_forgotten_task_definition_in_steady_phase() -> None:
     expected = ["aws_ecs_task_definition.td", "aws_sns_topic.a"]
     assert not check_plan(p, expected, STEADY).ok
     assert check_plan(p, expected, STEADY, forgotten=["aws_ecs_task_definition.td"]).ok
+
+
+def test_forgotten_is_limited_to_task_definitions_with_a_forget_action() -> None:
+    assert not check_plan(
+        plan(), {"aws_s3_bucket.prod": "b"}, STEADY, forgotten=["aws_s3_bucket.prod"]
+    ).ok
+    assert not check_plan(
+        plan(),
+        {"aws_ecs_task_definition.td": "arn"},
+        STEADY,
+        forgotten=["aws_ecs_task_definition.td"],
+    ).ok
+
+
+def test_non_aws_provider_rejected() -> None:
+    rc = change("aws_s3_bucket.a", ["no-op"], True)
+    rc["provider_name"] = "registry.terraform.io/evil/aws"
+    assert not check_plan(plan(rc), ["aws_s3_bucket.a"], IMPORT).ok

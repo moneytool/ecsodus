@@ -78,7 +78,7 @@ def _record_name(raw: str) -> str:
 def plan_zone_records(
     zone: F.ResourcePlan,
     live: dict[str, Any],
-    owned: set[tuple[str, str]],
+    owned: set[tuple[str, str, str]],
     names: set[str],
 ) -> list[F.ResourcePlan]:
     zone_id = (zone.physical_id or "").rsplit("/", 1)[-1]
@@ -88,8 +88,8 @@ def plan_zone_records(
         name, rtype = _record_name(rr.get("Name", "")), rr.get("Type", "")
         if name == zone_name and rtype in ("SOA", "NS"):
             continue  # managed by the zone itself
-        if (name, rtype) in owned:
-            continue  # a CloudFormation RecordSet owns it and is mapped with its stack
+        if (zone_id.lower(), name, rtype) in owned or (zone_name, name, rtype) in owned:
+            continue  # a CloudFormation RecordSet in this zone owns it (mapped with its stack)
         lid = f"out-of-band:{name}/{rtype}"
         rtype_label = "OutOfBand::Route53::Record"
         set_id = rr.get("SetIdentifier")

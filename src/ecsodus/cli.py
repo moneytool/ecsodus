@@ -53,6 +53,8 @@ def cmd_inventory(a: argparse.Namespace) -> int:
 
     session = boto3.Session(profile_name=a.profile, region_name=a.region)
     inv = copilot.inventory(Clients(session), a.app, a.env or None, a.keep_on_copilot or ())
+    if a.profile:
+        inv.selection["profile"] = a.profile
     if not inv.stacks:
         return _err(f"no Copilot stacks found for app {a.app!r} in {inv.account}/{inv.region}")
     inv.save(a.output)
@@ -309,6 +311,12 @@ def cmd_verify_fresh(a: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             failed = True
             print(f"FAIL {name}: {exc}")
+            continue
+        if not str(d.get("StackStatus", "")).endswith("_COMPLETE") or "ROLLBACK" in str(
+            d.get("StackStatus", "")
+        ):
+            failed = True
+            print(f"FAIL {name}: status {d.get('StackStatus')} (must be settled *_COMPLETE)")
             continue
         last = d.get("LastUpdatedTime") or d.get("CreationTime")
         now = last.isoformat() if hasattr(last, "isoformat") else str(last)

@@ -67,16 +67,22 @@ class _Doc:
 
 
 def _wait_stackset_op(ss_name: str) -> list[str]:
-    """Poll a StackSet operation to SUCCEEDED and require every instance result SUCCEEDED."""
+    """Poll a StackSet operation to SUCCEEDED, then require at least one instance result and
+    every instance result SUCCEEDED. Each AWS call is its own checked assignment, so a failing
+    call stops the block instead of producing empty output that looks like success."""
     return [
         "while :; do st=$(aws cloudformation describe-stack-set-operation "
         f'--stack-set-name {q(ss_name)} --operation-id "$op" '
         "--query StackSetOperation.Status --output text)",
         '  case "$st" in SUCCEEDED) break;; FAILED|STOPPED) echo "StackSet operation $st"; '
         "exit 1;; esac; sleep 10; done",
-        'test -z "$(aws cloudformation list-stack-set-operation-results '
+        "total=$(aws cloudformation list-stack-set-operation-results "
         f'--stack-set-name {q(ss_name)} --operation-id "$op" '
-        '--query "Summaries[?Status!=\'SUCCEEDED\'].Account" --output text)"',
+        "--query 'length(Summaries)' --output text)",
+        "bad=$(aws cloudformation list-stack-set-operation-results "
+        f'--stack-set-name {q(ss_name)} --operation-id "$op" '
+        "--query \"length(Summaries[?Status!='SUCCEEDED'])\" --output text)",
+        'test "$total" -ge 1 && test "$bad" -eq 0',
     ]
 
 
@@ -105,7 +111,8 @@ def render(
     roots.sort(key=lambda s: (order[s.kind], s.name))
     sel = inv.selection or {}
     select_args = " ".join(
-        [f"--env {q(e)}" for e in sel.get("envs", [])]
+        ([f"--profile {q(sel['profile'])}"] if sel.get("profile") else [])
+        + [f"--env {q(e)}" for e in sel.get("envs", [])]
         + [f"--keep-on-copilot {q(k)}" for k in sel.get("keep_on_copilot", [])]
     )
     reinventory = " ".join(
@@ -117,8 +124,10 @@ def render(
         )
         if x
     )
-    regenerate = f"ecsodus generate {q(inventory_path)} --patch-bucket {q(patches.bucket)}" + (
-        " --i-understand-teardown-is-unverified" if include_teardown else ""
+    regenerate = (
+        f"ecsodus generate {q(inventory_path)} --patch-bucket {q(patches.bucket)}"
+        + (" --i-understand-teardown-is-unverified" if include_teardown else "")
+        + (" --metadata-fallback" if patches.metadata_fallback else "")
     )
 
     w(f"# Runbook: migrate Copilot app `{inv.app}` to Terraform (adopt in place)\n")

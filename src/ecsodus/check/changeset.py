@@ -122,14 +122,28 @@ def check_change_sets(
                 referenced.add(child)
     for child in sorted(referenced - ids):
         result.errors.append(f"nested change set {child} was not supplied (describe it too)")
+    root_id = roots[0].get("ChangeSetId") if len(roots) == 1 else None
+    by_id = {cs.get("ChangeSetId"): cs for cs in sets}
     for cs in sets:
         cid = cs.get("ChangeSetId")
-        if cs.get("ParentChangeSetId") and cid not in referenced:
+        parent = cs.get("ParentChangeSetId")
+        if parent and cid not in referenced:
             result.errors.append(f"change set {cid} is not referenced by the root")
+        if parent and parent not in by_id:
+            result.errors.append(f"change set {cid} has parent {parent}, which was not supplied")
+        if cs.get("RootChangeSetId") and root_id and cs["RootChangeSetId"] != root_id:
+            result.errors.append(f"change set {cid} belongs to another root")
+    # Wrapper logical IDs whose child change set was actually supplied (for Dynamic entries).
+    supplied_children: set[str] = set()
+    for cs in sets:
+        for change in cs.get("Changes") or []:
+            rcx = change.get("ResourceChange") or {}
+            if rcx.get("ChangeSetId") in ids:
+                supplied_children.add(rcx.get("LogicalResourceId", ""))
 
     for cs in sets:
         name = cs.get("StackName") or cs.get("ChangeSetName") or "?"
-        status, execution = cs.get("Status"), cs.get("ExecutionStatus", "AVAILABLE")
+        status, execution = cs.get("Status"), cs.get("ExecutionStatus")
         if status != "CREATE_COMPLETE" or execution != "AVAILABLE":
             result.errors.append(
                 f"{name}: change set is {status}/{execution}, not CREATE_COMPLETE/AVAILABLE"
@@ -143,7 +157,7 @@ def check_change_sets(
             rc = change.get("ResourceChange") or {}
             where = f"{name}/{rc.get('LogicalResourceId', '?')}"
             problems = _check_resource_change(
-                rc, nested_urls, allow_metadata_key, allow_nested_dynamic
+                rc, nested_urls, allow_metadata_key, allow_nested_dynamic, supplied_children
             )
             if problems:
                 result.errors.extend(f"{where}: {p}" for p in problems)
@@ -161,6 +175,7 @@ def _check_resource_change(
     nested_ok: Mapping[str, str | None],
     allow_metadata_key: bool,
     allow_nested_dynamic: bool,
+    supplied_children: set[str] = frozenset(),  # type: ignore[assignment]
 ) -> list[str]:
     problems: list[str] = []
     action = rc.get("Action")
@@ -187,6 +202,7 @@ def _check_resource_change(
                 allow_nested_dynamic
                 and d.get("ChangeSource") == "ResourceAttribute"
                 and causing.split(".", 1)[0] in nested_ok
+                and causing.split(".", 1)[0] in supplied_children
             ):
                 continue
             problems.append(

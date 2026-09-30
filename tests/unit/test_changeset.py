@@ -153,20 +153,23 @@ def test_metadata_only_with_flag_and_values() -> None:
     assert check_change_sets([cs(rc("A", [d2]))], allow_metadata_key=True).verdict == FAIL
 
 
-def test_dynamic_from_nested_needs_flag() -> None:
+def test_dynamic_from_nested_needs_flag_and_the_child_change_set() -> None:
     d = {
         "Target": {"Attribute": "Properties", "Name": "ContainerDefinitions"},
         "Evaluation": "Dynamic",
         "ChangeSource": "ResourceAttribute",
         "CausingEntity": "AddonsStack.Outputs.TableName",
     }
-    change = rc("TaskDefinition", [d])
     nested = {"AddonsStack": URL}
-    assert check_change_sets([cs(change)], patched_nested=nested).verdict == FAIL
-    assert (
-        check_change_sets([cs(change)], patched_nested=nested, allow_nested_dynamic=True).verdict
-        == PASS
-    )
+    root = cs(rc("TaskDefinition", [d]), nested_change())
+    child = child_cs(rc("Table", [policy()]))
+    assert check_change_sets([root, child], patched_nested=nested).verdict == FAIL
+    ok = check_change_sets([root, child], patched_nested=nested, allow_nested_dynamic=True)
+    assert ok.verdict == PASS
+    # Without the child's change set the dynamic entry cannot be trusted.
+    lone = cs(rc("TaskDefinition", [d]))
+    bad = check_change_sets([lone], patched_nested=nested, allow_nested_dynamic=True)
+    assert bad.verdict == FAIL
 
 
 def test_empty_change_set_is_not_a_pass() -> None:
@@ -193,6 +196,18 @@ def test_failed_change_set_for_other_reason_fails() -> None:
 
 def test_nested_change_sets_checked_too() -> None:
     child = child_cs(rc("Table", [{"Target": {"Attribute": "Properties", "Name": "BillingMode"}}]))
+    assert (
+        check_change_sets([cs(nested_change()), child], patched_nested={"AddonsStack": URL}).verdict
+        == FAIL
+    )
+
+
+def test_missing_execution_status_or_foreign_parent_fails() -> None:
+    doc = cs(rc("A", [policy()]))
+    del doc["ExecutionStatus"]
+    assert check_change_sets([doc]).verdict == FAIL
+    child = child_cs(rc("Table", [policy()]))
+    child["ParentChangeSetId"] = "someone-else"
     assert (
         check_change_sets([cs(nested_change()), child], patched_nested={"AddonsStack": URL}).verdict
         == FAIL

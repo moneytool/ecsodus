@@ -310,6 +310,10 @@ def _seed_kept(inv: Inventory, plan: MigrationPlan, mapped: dict[str, list[Resou
                 sp.handoff = False
                 sp.kept_because.append("workload not selected for migration")
                 plan.workload_status[key] = "not migrating (stays on Copilot)"
+        selected_envs = set((inv.selection or {}).get("envs") or [])
+        if selected_envs and stack.kind in (ENV, ENV_ADDONS) and stack.env not in selected_envs:
+            sp.handoff = False
+            sp.kept_because.append("environment not selected with --env")
         if stack.status and not stack.status.endswith("_COMPLETE"):
             sp.handoff = False
             sp.kept_because.append(f"stack status {stack.status} is not *_COMPLETE")
@@ -456,7 +460,16 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
         handoff = plan.stacks.get(stack_name) is not None and plan.stacks[stack_name].handoff
         rp = tf_oob.plan_certificate(obj, stack_name, handoff, names)
         plan.resources.append(rp)
-    owned_records: set[tuple[str, str]] = set()
+        if rp.fate == BLOCKED:
+            owner = plan.stacks.get(stack_name)
+            if owner is None:
+                plan.closure_errors.append(
+                    f"out-of-band {obj.kind} {obj.id} has unknown owner {obj.created_by}"
+                )
+            else:
+                owner.handoff = False
+                owner.kept_because.append(f"out-of-band certificate blocked: {rp.reason}")
+    owned_records: set[tuple[str, str, str]] = set()  # (zone id or name, record name, type)
     for st in inv.stacks.values():
         try:
             tpl = cfn.load(st.template_body)
@@ -470,8 +483,10 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
                 props = res.resolve(body.get("Properties") or {}) or {}
             except Unresolvable:
                 continue
+            zone = str(props.get("HostedZoneId") or props.get("HostedZoneName") or "")
+            zone = zone.rsplit("/", 1)[-1].rstrip(".").lower()
             owned_records.add(
-                (str(props.get("Name", "")).rstrip(".").lower(), str(props.get("Type", "")))
+                (zone, str(props.get("Name", "")).rstrip(".").lower(), str(props.get("Type", "")))
             )
     for rp in list(plan.imports()):
         if rp.type != "AWS::Route53::HostedZone" or rp.physical_id is None:

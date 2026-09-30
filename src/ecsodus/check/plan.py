@@ -52,7 +52,9 @@ def check_plan(
     (the imported task-definition revision): in the steady phase exactly those may show the
     ``forget`` action, and they are no longer required to be present.
     """
-    forgotten_set = set(forgotten)
+    forgotten_set = {a for a in forgotten if a.split(".", 1)[0] == "aws_ecs_task_definition"}
+    res_pre = [a for a in forgotten if a not in forgotten_set]
+    forget_seen: set[str] = set()
     if phase not in (IMPORT, STEADY):
         raise ValueError(f"unknown phase {phase!r}")
     expected: dict[str, str | None] = (
@@ -61,6 +63,8 @@ def check_plan(
         else dict.fromkeys(expected_imports)
     )
     res = CheckResult(ok=True)
+    for a in res_pre:
+        res.errors.append(f"{a}: only aws_ecs_task_definition addresses can be --forgotten")
     counts: dict[str, int] = {}
     importing_seen: set[str] = set()
     noop_seen: set[str] = set()
@@ -78,6 +82,11 @@ def check_plan(
             res.errors.append(f"{address}: data sources are not allowed (ecsodus generates none)")
             continue
         if actions == ["forget"] and phase == STEADY and address in forgotten_set:
+            forget_seen.add(address)
+            continue
+        provider = rc.get("provider_name", "registry.terraform.io/hashicorp/aws")
+        if not provider.endswith("hashicorp/aws"):
+            res.errors.append(f"{address}: provider {provider} is not hashicorp/aws")
             continue
         if actions != ["no-op"]:
             verb = "/".join(actions) or "?"
@@ -101,7 +110,9 @@ def check_plan(
         for address in sorted(importing_seen - set(expected)):
             res.errors.append(f"{address}: plan imports an address ecsodus did not generate")
     else:
-        for address in sorted(set(expected) - noop_seen - forgotten_set):
+        for address in sorted(forgotten_set - forget_seen):
+            res.errors.append(f"{address}: --forgotten but the plan does not forget it")
+        for address in sorted(set(expected) - noop_seen - forget_seen):
             res.errors.append(
                 f"{address}: missing from the steady plan (targeted or incomplete plan?)"
             )

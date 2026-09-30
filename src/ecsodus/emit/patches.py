@@ -26,6 +26,7 @@ class StackPatch:
 @dataclass
 class PatchSet:
     bucket: str
+    metadata_fallback: bool = False
     stacks: dict[str, StackPatch] = field(default_factory=dict)
     stackset: dict[str, PatchResult] = field(default_factory=dict)
 
@@ -42,7 +43,7 @@ def build_patches(
 ) -> PatchSet:
     """Patch every stack in ``only`` (default: all). Kept stacks are never patched or touched,
     so an unpatchable kept stack cannot abort generation."""
-    ps = PatchSet(bucket=bucket)
+    ps = PatchSet(bucket=bucket, metadata_fallback=metadata_fallback)
 
     # Children before parents: deepest nesting first.
     def depth(name: str) -> int:
