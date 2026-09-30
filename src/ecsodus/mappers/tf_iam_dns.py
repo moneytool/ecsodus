@@ -82,7 +82,8 @@ def iam_role(ctx: Ctx) -> TfSpec:
     policies = [p for p in (ctx.r("Policies", []) or []) if p]
     if policies:
         names = [p["PolicyName"] for p in policies]
-        live_names = ctx.live.get("RolePolicyNames")
+        # ListRolePolicies' PolicyNames, recorded by sources/live.py as "InlinePolicyNames".
+        live_names = ctx.live.get("InlinePolicyNames")
         ids = "; ".join(f'"{name}:{n}"' for n in names)
         if live_names is not None and sorted(live_names) == sorted(names):
             for p in policies:

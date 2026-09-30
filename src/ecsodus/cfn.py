@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.constructor import SafeConstructor
 from ruamel.yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 _SHORT_TAGS = {
@@ -55,13 +56,24 @@ def _plain(value: Any) -> Any:
     return value
 
 
+class _CfnConstructor(SafeConstructor):
+    """The semantic view's constructor.
+
+    ruamel registers constructors on the *class*. Registering on the shared SafeConstructor
+    leaked the ``!`` multi-constructor into the round-trip loader that :func:`yaml_positions`
+    uses, so after any :func:`load` a tagged mapping (``!GetAZs {Ref: AWS::Region}``) broke
+    retain patching. A private subclass keeps both registrations to this view.
+    """
+
+
+_CfnConstructor.add_multi_constructor("!", _construct_tagged)
+# CloudFormation treats unquoted dates as strings (AWSTemplateFormatVersion: 2010-09-09).
+_CfnConstructor.add_constructor("tag:yaml.org,2002:timestamp", SafeConstructor.construct_yaml_str)
+
+
 def _semantic_yaml() -> YAML:
     y = YAML(typ="safe", pure=True)
-    y.constructor.add_multi_constructor("!", _construct_tagged)
-    # CloudFormation treats unquoted dates as strings (AWSTemplateFormatVersion: 2010-09-09).
-    y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = (
-        y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
-    )
+    y.Constructor = _CfnConstructor
     return y
 
 

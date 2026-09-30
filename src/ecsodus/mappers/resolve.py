@@ -63,6 +63,26 @@ _ARN_TEMPLATES: dict[tuple[str, str], str] = {
 }
 
 
+# GetAtt attribute names that the describe APIs spell differently.
+_LIVE_ALIASES: dict[tuple[str, str], str] = {
+    ("AWS::ElasticLoadBalancingV2::LoadBalancer", "CanonicalHostedZoneID"): "CanonicalHostedZoneId",
+    ("AWS::ElasticLoadBalancingV2::LoadBalancer", "DNSName"): "DNSName",
+    ("AWS::ElasticLoadBalancingV2::LoadBalancer", "LoadBalancerName"): "LoadBalancerName",
+    ("AWS::ElasticLoadBalancingV2::TargetGroup", "TargetGroupName"): "TargetGroupName",
+}
+
+
+def _derive(rtype: str, attr: str, physical_id: str) -> str | None:
+    """Attributes that are exact functions of an ARN (the *FullName forms CloudWatch uses)."""
+    if rtype == "AWS::ElasticLoadBalancingV2::LoadBalancer" and attr == "LoadBalancerFullName":
+        _, _, tail = physical_id.partition(":loadbalancer/")
+        return tail or None
+    if rtype == "AWS::ElasticLoadBalancingV2::TargetGroup" and attr == "TargetGroupFullName":
+        _, sep, tail = physical_id.partition(":targetgroup/")
+        return f"targetgroup/{tail}" if sep else None
+    return None
+
+
 class Resolver:
     """Resolves intrinsics within one stack of an inventory."""
 
@@ -163,6 +183,12 @@ class Resolver:
         live = self.inv.live.get(res.physical_id) or {}
         if attr in live:
             return live[attr]
+        alias = _LIVE_ALIASES.get((res.type, attr))
+        if alias and alias in live:
+            return live[alias]
+        derived = _derive(res.type, attr, res.physical_id)
+        if derived is not None:
+            return derived
         tmpl = _ARN_TEMPLATES.get((res.type, attr))
         if tmpl is None:
             raise Unresolvable(f"GetAtt {lid}.{attr} ({res.type}) not derivable")

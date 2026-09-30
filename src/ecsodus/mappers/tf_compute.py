@@ -21,7 +21,7 @@ from typing import Any
 
 from ecsodus.emit.hcl import Block, Raw, value
 from ecsodus.mappers.resolve import Unresolvable
-from ecsodus.mappers.tfmap import MANUAL_CLEANUP, Ctx, NotImported, TfSpec, mapper
+from ecsodus.mappers.tfmap import MANUAL_CLEANUP, Ctx, NotImported, TfSpec, _live_tags, mapper
 
 # -- shared helpers -------------------------------------------------------------------------
 
@@ -111,6 +111,7 @@ def lambda_handler(ctx: Ctx) -> NotImported:
 
 @mapper("AWS::Logs::LogGroup")
 def log_group(ctx: Ctx) -> TfSpec:
+    _only(ctx, {"LogGroupName", "RetentionInDays", "KmsKeyId", "Tags"})
     body: list = [("name", ctx.pid)]
     retention = ctx.r("RetentionInDays", None)
     if retention is not None:
@@ -124,16 +125,104 @@ def log_group(ctx: Ctx) -> TfSpec:
     return TfSpec("aws_cloudwatch_log_group", ctx.pid, body)
 
 
+@mapper("AWS::Logs::ResourcePolicy")
+def log_resource_policy(ctx: Ctx) -> TfSpec:
+    """aws_cloudwatch_log_resource_policy, import id = policy name (the physical id).
+
+    Every Copilot env stack has one (``LogResourcePolicy``). No live keys. Resource-scoped
+    policies (``ResourceArn``) are refused by the allowlist.
+    """
+    _only(ctx, {"PolicyName", "PolicyDocument"})
+    name = ctx.r("PolicyName")
+    if name != ctx.pid:
+        raise Unresolvable(f"PolicyName {name} != physical id {ctx.pid}")
+    doc = ctx.r("PolicyDocument")
+    body: list = [
+        ("policy_name", name),
+        ("policy_document", doc if isinstance(doc, str) else _json(doc)),
+    ]
+    return TfSpec("aws_cloudwatch_log_resource_policy", name, body)
+
+
+_EXEC_CMD_KEYS = {"KmsKeyId", "Logging", "LogConfiguration"}
+_EXEC_LOG_KEYS = {
+    "CloudWatchEncryptionEnabled": ("cloud_watch_encryption_enabled", "bool"),
+    "CloudWatchLogGroupName": ("cloud_watch_log_group_name", "str"),
+    "S3BucketName": ("s3_bucket_name", "str"),
+    "S3EncryptionEnabled": ("s3_bucket_encryption_enabled", "bool"),
+    "S3KeyPrefix": ("s3_key_prefix", "str"),
+}
+_MANAGED_STORAGE_KEYS = {
+    "KmsKeyId": "kms_key_id",
+    "FargateEphemeralStorageKmsKeyId": "fargate_ephemeral_storage_kms_key_id",
+}
+
+
+def _cluster_configuration(cfg: dict[str, Any]) -> Block:
+    """ClusterConfiguration -> the ``configuration`` block (every key mapped or refused)."""
+    extra = set(cfg) - {"ExecuteCommandConfiguration", "ManagedStorageConfiguration"}
+    if extra:
+        raise Unresolvable(f"cluster Configuration keys not supported: {sorted(extra)}")
+    body: list = []
+    ecc = cfg.get("ExecuteCommandConfiguration")
+    if ecc:
+        extra = set(ecc) - _EXEC_CMD_KEYS
+        if extra:
+            raise Unresolvable(f"ExecuteCommandConfiguration keys not supported: {sorted(extra)}")
+        eb: list = []
+        if ecc.get("KmsKeyId"):
+            eb.append(("kms_key_id", ecc["KmsKeyId"]))
+        if ecc.get("Logging"):
+            eb.append(("logging", ecc["Logging"]))
+        logc = ecc.get("LogConfiguration")
+        if logc:
+            extra = set(logc) - set(_EXEC_LOG_KEYS)
+            if extra:
+                raise Unresolvable(f"LogConfiguration keys not supported: {sorted(extra)}")
+            lb_: list = [
+                (arg, _attr_value(logc[k], kind))
+                for k, (arg, kind) in _EXEC_LOG_KEYS.items()
+                if k in logc
+            ]
+            eb.append(("log_configuration", Block(lb_)))
+        body.append(("execute_command_configuration", Block(eb)))
+    msc = cfg.get("ManagedStorageConfiguration")
+    if msc:
+        extra = set(msc) - set(_MANAGED_STORAGE_KEYS)
+        if extra:
+            raise Unresolvable(f"ManagedStorageConfiguration keys not supported: {sorted(extra)}")
+        mb: list = [(arg, msc[k]) for k, arg in _MANAGED_STORAGE_KEYS.items() if msc.get(k)]
+        body.append(("managed_storage_configuration", Block(mb)))
+    return Block(body)
+
+
 @mapper("AWS::ECS::Cluster")
 def ecs_cluster(ctx: Ctx) -> TfSpec:
+    """aws_ecs_cluster, import id = cluster name (the physical id). No live keys.
+
+    ``Configuration`` becomes the ``configuration`` block: it is not computed, so leaving it out
+    would make the first plan remove the live execute-command settings. Capacity providers are a
+    separate resource (noted, fidelity partial); ``ServiceConnectDefaults`` is refused.
+    """
+    _only(
+        ctx,
+        {"ClusterName", "ClusterSettings", "CapacityProviders", "DefaultCapacityProviderStrategy",
+         "Configuration", "Tags"},
+    )  # fmt: skip
+    name = ctx.r("ClusterName", ctx.pid)
+    if name != ctx.pid:
+        raise Unresolvable(f"ClusterName {name} != physical id {ctx.pid}")
     body: list = [("name", ctx.pid)]
     for setting in ctx.r("ClusterSettings", []):
         body.append(("setting", Block([("name", setting["Name"]), ("value", setting["Value"])])))
+    cfg = ctx.r("Configuration", None)
+    if cfg:
+        body.append(("configuration", _cluster_configuration(cfg)))
     tags = ctx.tags()
     if tags:
         body.append(("tags", tags))
     spec = TfSpec("aws_ecs_cluster", ctx.pid, body)
-    if ctx.r("CapacityProviders", None):
+    if ctx.r("CapacityProviders", None) or ctx.r("DefaultCapacityProviderStrategy", None):
         spec.notes.append(
             "capacity providers are a separate resource (aws_ecs_cluster_capacity_providers, "
             f'import id "{ctx.pid}"); not generated in v0.1'
@@ -752,7 +841,11 @@ def lb_listener_rule(ctx: Ctx) -> TfSpec:
         body.append(("action", _action_block(a)))
     for c in ctx.r("Conditions"):
         body.append(("condition", _condition_block(c)))
-    _add_tags(ctx, body)
+    # CloudFormation's ListenerRule has no Tags property, so stack-level tags are never
+    # propagated to it: merging them in (ctx.tags()) would add tags on the first plan. Tags
+    # are emitted only from a live read (or a template Tags property, should one appear).
+    if ctx.has("Tags") or _live_tags(ctx.live) is not None:
+        _add_tags(ctx, body)
     return TfSpec("aws_lb_listener_rule", ctx.pid, body)
 
 

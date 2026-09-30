@@ -79,7 +79,7 @@ def test_execution_role_without_live_policy_names_lists_policies_in_notes():
 def test_task_role_inline_policies_emitted_when_live_matches_exactly():
     inv, stack = _svc()
     role = _pid(stack, "TaskRole")
-    inv.live[role] = {"RolePolicyNames": ["Publish2SNS", "DenyIAM"]}
+    inv.live[role] = {"InlinePolicyNames": ["Publish2SNS", "DenyIAM"]}
     spec = _spec(inv, stack, "TaskRole")
     inline = _blocks(spec, "inline_policy")
     assert [b["name"] for b in inline] == ["DenyIAM", "Publish2SNS"]
@@ -88,7 +88,7 @@ def test_task_role_inline_policies_emitted_when_live_matches_exactly():
     assert spec.fidelity == "full"
 
     # Another stack attached an extra inline policy: inline_policy (exclusive) would delete it.
-    inv.live[role] = {"RolePolicyNames": ["Publish2SNS", "DenyIAM", "fe-S3Access"]}
+    inv.live[role] = {"InlinePolicyNames": ["Publish2SNS", "DenyIAM", "fe-S3Access"]}
     spec = _spec(inv, stack, "TaskRole")
     assert not _blocks(spec, "inline_policy") and spec.fidelity == "partial"
     assert any("fe-S3Access" in n and f'"{role}:DenyIAM"' in n for n in spec.notes)

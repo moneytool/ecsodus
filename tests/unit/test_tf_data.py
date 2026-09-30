@@ -318,7 +318,7 @@ def test_kms_key_policy_as_deployed_and_alias():
     assert any("template" in n for n in spec.notes)
 
     deployed = '{"Version":"2012-10-17","Statement":[]}'
-    inv.live[key] = {"KeyPolicy": deployed}
+    inv.live[key] = {"Policy": deployed}  # sources/live.py records GetKeyPolicy as "Policy"
     assert _args(_spec(inv, stack, "Key"))["policy"] == deployed
 
     alias = _spec(inv, stack, "KeyAlias")
@@ -412,10 +412,10 @@ def test_ddb_addon_table():
 def test_provisioned_table_capacity_comes_from_live():
     inv, stack = inventory_from_template(SYN / "data-iam-misc.yml")
     pid = _pid(stack, "Provisioned")
+    # DescribeTable's shape, as sources/live.py records it.
     inv.live[pid] = {
-        "BillingMode": "PROVISIONED",
-        "ReadCapacityUnits": 12,
-        "WriteCapacityUnits": 7,
+        "BillingModeSummary": {"BillingMode": "PROVISIONED"},
+        "ProvisionedThroughput": {"ReadCapacityUnits": 12, "WriteCapacityUnits": 7},
         "DeletionProtectionEnabled": True,
     }
     out = _map(inv, stack, "Provisioned")
@@ -433,6 +433,46 @@ def test_provisioned_table_capacity_comes_from_live():
     assert _blocks(spec, "point_in_time_recovery") == [{"enabled": True}]
     assert _blocks(spec, "ttl") == [{"attribute_name": "expires", "enabled": True}]
     assert a["deletion_protection_enabled"] is True
+
+
+def test_table_reads_describe_table_shape():
+    # Regression: the mapper read flat BillingMode/ReadCapacityUnits/TableClass/KMSMasterKeyArn
+    # keys, which DescribeTable (and so sources/live.py) never returns; they are nested.
+    inv, stack = inventory_from_template(SYN / "data-iam-misc.yml")
+    pid = _pid(stack, "Provisioned")
+    table = {
+        "BillingModeSummary": {"BillingMode": "PAY_PER_REQUEST"},  # switched since deploy
+        "TableClassSummary": {"TableClass": "STANDARD_INFREQUENT_ACCESS"},
+        "ProvisionedThroughput": {"ReadCapacityUnits": 0, "WriteCapacityUnits": 0},
+        "DeletionProtectionEnabled": True,
+    }
+    inv.live[pid] = table
+    spec = _spec(inv, stack, "Provisioned")
+    a = _args(spec)
+    assert a["billing_mode"] == "PAY_PER_REQUEST" and "read_capacity" not in a
+    assert a["table_class"] == "STANDARD_INFREQUENT_ACCESS"
+    assert any("BillingMode" in n and "live" in n for n in spec.notes)
+    # Flat keys are not DescribeTable fields and are not read.
+    inv.live[pid] = {"BillingMode": "PAY_PER_REQUEST", "DeletionProtectionEnabled": True}
+    out = _map(inv, stack, "Provisioned")
+    assert isinstance(out, NotImported) and "ReadCapacityUnits" in out.reason
+
+
+def test_table_kms_key_arn_from_sse_description():
+    inv, stack = inventory_from_template(SYN / "s3-ddb-addons.yml", kind="addons", params=ADDON)
+    pid = _pid(stack, "orders")
+    tpl = cfn.load(stack.template_body)
+    body = tpl["Resources"]["orders"]
+    body["Properties"]["SSESpecification"] = {"SSEEnabled": True, "KMSMasterKeyId": "alias/k"}
+    res = stack.resource("orders")
+    key_arn = f"arn:aws:kms:{REGION}:{ACCOUNT}:key/1234"
+    inv.live[pid] = {"DeletionProtectionEnabled": False}
+    out = map_resource(inv, stack, Resolver(inv, stack, tpl), res, body)
+    assert isinstance(out, NotImported) and "SSEDescription.KMSMasterKeyArn" in out.reason
+    inv.live[pid]["SSEDescription"] = {"Status": "ENABLED", "KMSMasterKeyArn": key_arn}
+    out = map_resource(inv, stack, Resolver(inv, stack, tpl), res, body)
+    assert isinstance(out, TfSpec)
+    assert _blocks(out, "server_side_encryption") == [{"enabled": True, "kms_key_arn": key_arn}]
 
 
 # -- EFS --------------------------------------------------------------------------------------

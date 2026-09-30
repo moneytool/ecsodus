@@ -185,3 +185,20 @@ def test_envs_elsewhere_keep_the_app_layer() -> None:
     plan = build_plan(inv)
     assert not plan.stacks["demo-infrastructure-roles"].handoff
     assert plan.stacks["demo-test"].handoff
+
+
+def test_cleanup_handle_sharing_an_imported_id_is_not_a_closure_error() -> None:
+    """Aurora's SecretTargetAttachment reports the secret's ARN as its own physical ID."""
+    inv = app()
+    env = inv.stacks["demo-test"]
+    shared = "/copilot/demo-test"  # the env log group's ID, also claimed by a cleanup handle
+    env.template_body += "  Attach:\n    Type: Custom::Whatever\n"
+    env.resources.append(
+        type(env.resources[0])("Attach", "AWS::SecretsManager::SecretTargetAttachment", shared)
+    )
+    env.template_body = env.template_body.replace(
+        "  Attach:\n    Type: Custom::Whatever\n",
+        "  Attach:\n    Type: AWS::SecretsManager::SecretTargetAttachment\n    Properties: {}\n",
+    )
+    plan = build_plan(inv)
+    assert plan.closure_errors == []

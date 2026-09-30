@@ -400,9 +400,13 @@ def _closure(plan: MigrationPlan) -> None:
         if not sp.handoff and name in inv.stacks:
             st = inv.stacks[name]
             haystacks.append((f"kept stack {name}", st.template_body + repr(st.parameters)))
+    imported_ids = {rp.physical_id for rp in plan.imports() if rp.physical_id}
     for r in cleanup:
         pid = r.physical_id or ""
-        if len(pid) < 8:
+        # Some handles report another resource's ID as their own (an Aurora
+        # SecretTargetAttachment reports the secret's ARN). If that ID is itself imported, the
+        # dependency is on the imported resource, not on the cleanup handle.
+        if len(pid) < 8 or pid in imported_ids:
             continue
         # A kept stack referencing its *own* manual-cleanup resource is fine: it is not deleted.
         needles = {pid, pid.rsplit(":", 1)[-1] if pid.startswith("arn:") else pid}

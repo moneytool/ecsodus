@@ -387,7 +387,9 @@ def render(
             if s.kind in (STACKSET_INSTANCE, APP):
                 continue
             if s.kind in (ADDONS, ENV_ADDONS):
-                teardown_cmds.append(f"# {name} was orphaned when its parent was deleted (wrapper retained)")
+                teardown_cmds.append(
+                    f"# {name} was orphaned when its parent was deleted (wrapper retained)"
+                )
             teardown_cmds += _delete(inv.app, name)
         for ss_name, ss in sorted(inv.stacksets.items()):
             if not instances:
@@ -405,9 +407,13 @@ def render(
                 i for i in ss.instances if (i["account"], i["region"]) != (inv.account, inv.region)
             ]
             if others:
-                teardown_cmds.append(f"# StackSet {ss_name} keeps {len(others)} instance(s) elsewhere")
+                teardown_cmds.append(
+                    f"# StackSet {ss_name} keeps {len(others)} instance(s) elsewhere"
+                )
             else:
-                teardown_cmds.append(f"aws cloudformation delete-stack-set --stack-set-name {q(ss_name)}")
+                teardown_cmds.append(
+                    f"aws cloudformation delete-stack-set --stack-set-name {q(ss_name)}"
+                )
         for name in plan.teardown:
             if inv.stacks[name].kind == APP:
                 teardown_cmds += _delete(inv.app, name)

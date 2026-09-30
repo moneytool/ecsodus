@@ -559,11 +559,9 @@ def test_scaling_policies(svc):
     pre = block_args(tt["predefined_metric_specification"])
     assert pre == {"predefined_metric_type": "ECSServiceAverageCPUUtilization"}
 
-    # The ALB policy needs the target group's full name (not derivable from its ARN).
+    # The ALB policy needs the target group's full name, derived exactly from its ARN
+    # (arn:...:targetgroup/<name>/<id> -> targetgroup/<name>/<id>).
     lid = "AutoScalingPolicyALBAverageResponseTime"
-    blocked(run(inv, stack, lid), "TargetGroupFullName")
-    tg = stack.resource("TargetGroupForImportedALB").physical_id
-    inv.live[tg] = {"TargetGroupFullName": "targetgroup/tg/0123456789abcdef"}
     tt = block_args(
         args(spec_of(run(inv, stack, lid)))["target_tracking_scaling_policy_configuration"]
     )
@@ -641,3 +639,109 @@ def test_all_svc_test_resources_map_and_render(svc):
         result = run(inv, stack, r.logical_id)
         if isinstance(result, TfSpec):
             render(result)
+
+
+# -- fixes found by the full hand-off golden test (tests/golden/test_full_handoff.py) --------
+
+
+def test_log_resource_policy(env):
+    inv, stack = env
+    stack.parameters["EnvironmentName"] = "test"
+    spec = spec_of(run(inv, stack, "LogResourcePolicy"))
+    assert spec.tf_type == "aws_cloudwatch_log_resource_policy"
+    assert spec.import_id == "my-app-test-LogResourcePolicy"
+    a = args(spec)
+    assert a["policy_name"] == "my-app-test-LogResourcePolicy"
+    assert '"Sid": "StateMachineToCloudWatchLogs"' in a["policy_document"]
+    assert "log-group:/copilot/my-app-test-*" in a["policy_document"]
+    render(spec)
+    set_pid(stack, "LogResourcePolicy", "something-else")
+    blocked(run(inv, stack, "LogResourcePolicy"), "PolicyName")
+
+
+def test_log_resource_policy_resource_scoped_is_blocked(env):
+    inv, stack = env
+    res = stack.resource("LogResourcePolicy")
+    body = {
+        "Type": res.type,
+        "Properties": {"PolicyName": res.physical_id, "PolicyDocument": "{}", "ResourceArn": "a"},
+    }
+    blocked(map_resource(inv, stack, Resolver(inv, stack), res, body), "ResourceArn")
+
+
+def test_cluster_configuration_is_emitted(env):
+    # Copilot's env cluster sets Configuration.ExecuteCommandConfiguration.Logging. The block is
+    # not computed in the provider, so dropping it made the first plan remove the setting.
+    inv, stack = env
+    spec = spec_of(run(inv, stack, "Cluster"))
+    a = args(spec)
+    assert block_args(a["setting"]) == {"name": "containerInsights", "value": "disabled"}
+    ecc = block_args(block_args(a["configuration"])["execute_command_configuration"])
+    assert ecc == {"logging": "DEFAULT"}
+    assert spec.fidelity == "partial"  # CapacityProviders: a separate resource
+    assert "configuration {" in render(spec)
+
+
+def test_cluster_unknown_properties_are_blocked(env):
+    inv, stack = env
+    res = stack.resource("Cluster")
+    for props, fragment in (
+        ({"ServiceConnectDefaults": {"Namespace": "x"}}, "ServiceConnectDefaults"),
+        ({"Configuration": {"Future": {}}}, "Future"),
+        (
+            {"Configuration": {"ExecuteCommandConfiguration": {"Logging": "OVERRIDE", "X": 1}}},
+            "ExecuteCommandConfiguration",
+        ),
+        ({"ClusterName": "other"}, "ClusterName"),
+    ):
+        body = {"Type": res.type, "Properties": props}
+        blocked(map_resource(inv, stack, Resolver(inv, stack), res, body), fragment)
+
+
+def test_cluster_execute_command_log_configuration(env):
+    inv, stack = env
+    res = stack.resource("Cluster")
+    body = {
+        "Type": res.type,
+        "Properties": {
+            "Configuration": {
+                "ExecuteCommandConfiguration": {
+                    "Logging": "OVERRIDE",
+                    "KmsKeyId": "k",
+                    "LogConfiguration": {
+                        "CloudWatchLogGroupName": "/ecs/exec",
+                        "CloudWatchEncryptionEnabled": "true",
+                        "S3BucketName": "b",
+                    },
+                }
+            }
+        },
+    }
+    a = args(spec_of(map_resource(inv, stack, Resolver(inv, stack), res, body)))
+    ecc = block_args(block_args(a["configuration"])["execute_command_configuration"])
+    assert ecc["kms_key_id"] == "k" and ecc["logging"] == "OVERRIDE"
+    assert block_args(ecc["log_configuration"]) == {
+        "cloud_watch_encryption_enabled": True,
+        "cloud_watch_log_group_name": "/ecs/exec",
+        "s3_bucket_name": "b",
+    }
+
+
+def test_log_group_unknown_property_is_blocked(svc):
+    inv, stack = svc
+    res = stack.resource("LogGroup")
+    body = {"Type": res.type, "Properties": {"LogGroupName": res.physical_id, "Future": 1}}
+    blocked(map_resource(inv, stack, Resolver(inv, stack), res, body), "Future")
+
+
+def test_listener_rule_does_not_inherit_stack_tags():
+    # AWS::ElasticLoadBalancingV2::ListenerRule has no Tags property, so CloudFormation never
+    # propagates stack tags to it; emitting them made the first plan add tags to every rule.
+    inv, stack = load("backend/https-path-alias-template.yml")
+    stack.tags = {"copilot-application": "my-app", "copilot-environment": "test"}
+    rule = f"{LISTENER.replace(':listener/', ':listener-rule/')}/9999cccc0000dddd"
+    set_pid(stack, "HTTPSListenerRule", rule)
+    inv.live[rule] = {"Priority": "3"}
+    assert "tags" not in args(spec_of(run(inv, stack, "HTTPSListenerRule")))
+    inv.live[rule]["Tags"] = [{"Key": "team", "Value": "web"}]
+    assert args(spec_of(run(inv, stack, "HTTPSListenerRule")))["tags"] == {"team": "web"}

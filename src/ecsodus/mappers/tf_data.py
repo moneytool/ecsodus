@@ -55,13 +55,15 @@ def _pick(
     *,
     required: bool = False,
     live_only: bool = False,
+    live: dict[str, Any] | None = None,
 ) -> Any:
     """Live value (wins, with a note on disagreement), else the resolved template value.
 
     ``live_only``: the template value is not trusted (stale, or a dynamic reference); the live
-    value is required.
+    value is required. ``live``: read from this view instead of ``ctx.live`` (for API responses
+    whose fields are nested, flattened by the caller).
     """
-    lv = ctx.live.get(live_key)
+    lv = (ctx.live if live is None else live).get(live_key)
     tv = ctx.r(prop, None) if prop and not live_only else None
     if lv is not None:
         if tv is not None and not _same(tv, lv):
@@ -489,6 +491,29 @@ def _keys(schema: list[dict[str, str]]) -> dict[str, str]:
     return {k["KeyType"]: k["AttributeName"] for k in schema}
 
 
+def _ddb_live(table: dict[str, Any]) -> dict[str, Any]:
+    """DescribeTable's nested fields (as ``sources/live.py`` records them), flattened.
+
+    ``BillingModeSummary`` and ``TableClassSummary`` are absent for tables that never changed
+    mode or class; the template value (or the AWS default) then applies.
+    """
+    out: dict[str, Any] = {}
+    billing = (table.get("BillingModeSummary") or {}).get("BillingMode")
+    if billing:
+        out["BillingMode"] = billing
+    table_class = (table.get("TableClassSummary") or {}).get("TableClass")
+    if table_class:
+        out["TableClass"] = table_class
+    pt = table.get("ProvisionedThroughput") or {}
+    for key in ("ReadCapacityUnits", "WriteCapacityUnits"):
+        if pt.get(key) is not None:
+            out[key] = pt[key]
+    kms_arn = (table.get("SSEDescription") or {}).get("KMSMasterKeyArn")
+    if kms_arn:
+        out["KMSMasterKeyArn"] = kms_arn
+    return out
+
+
 @mapper("AWS::DynamoDB::Table")
 def dynamodb_table(ctx: Ctx) -> TfSpec:
     _only(ctx, _DDB_PROPS)
@@ -496,7 +521,8 @@ def dynamodb_table(ctx: Ctx) -> TfSpec:
     spec = TfSpec("aws_dynamodb_table", name, [], stateful=True)
     body = spec.body
     body.append(("name", name))
-    billing = _pick(ctx, spec, "BillingMode", "BillingMode") or "PROVISIONED"
+    live = _ddb_live(ctx.live)
+    billing = _pick(ctx, spec, "BillingMode", "BillingMode", live=live) or "PROVISIONED"
     body.append(("billing_mode", billing))
     keys = _keys(ctx.r("KeySchema"))
     body.append(("hash_key", keys["HASH"]))
@@ -508,7 +534,7 @@ def dynamodb_table(ctx: Ctx) -> TfSpec:
             ("ReadCapacityUnits", "read_capacity"),
             ("WriteCapacityUnits", "write_capacity"),
         ):
-            body.append((arg, int(_pick(ctx, spec, live_key, None, live_only=True))))
+            body.append((arg, int(_pick(ctx, spec, live_key, None, live_only=True, live=live))))
     for attr in sorted(ctx.r("AttributeDefinitions"), key=lambda a: a["AttributeName"]):
         attr_body = [("name", attr["AttributeName"]), ("type", attr["AttributeType"])]
         body.append(("attribute", Block(attr_body)))
@@ -539,11 +565,11 @@ def dynamodb_table(ctx: Ctx) -> TfSpec:
     if sse:
         blk = [("enabled", _bool(sse.get("SSEEnabled", False)))]
         if sse.get("KMSMasterKeyId"):
-            arn = ctx.live.get("KMSMasterKeyArn")
+            arn = live.get("KMSMasterKeyArn")
             if not arn:
                 raise Unresolvable(
-                    "live KMSMasterKeyArn was not read (the template key id/alias is not the "
-                    "ARN Terraform stores)"
+                    "live SSEDescription.KMSMasterKeyArn was not read (the template key id/alias "
+                    "is not the ARN Terraform stores)"
                 )
             blk.append(("kms_key_arn", arn))
         body.append(("server_side_encryption", Block(blk)))
@@ -560,7 +586,7 @@ def dynamodb_table(ctx: Ctx) -> TfSpec:
             ("enabled", _bool(ttl.get("Enabled", False))),
         ]
         body.append(("ttl", Block(ttl_body)))
-    table_class = _pick(ctx, spec, "TableClass", "TableClass")
+    table_class = _pick(ctx, spec, "TableClass", "TableClass", live=live)
     if table_class:
         body.append(("table_class", table_class))
     _deletion_protection(ctx, spec, "DeletionProtectionEnabled", "deletion_protection_enabled")
@@ -941,8 +967,9 @@ def kms_key(ctx: Ctx) -> TfSpec:
     window = ctx.r("PendingWindowInDays", None)
     if window is not None:
         body.append(("deletion_window_in_days", int(window)))
-    # The key policy as deployed (GetKeyPolicy); the template form is a fallback.
-    live_policy = ctx.live.get("KeyPolicy")
+    # The key policy as deployed (GetKeyPolicy, recorded by sources/live.py as "Policy"); the
+    # template form is a fallback.
+    live_policy = ctx.live.get("Policy")
     if live_policy is not None:
         body.append(("policy", _json_doc(live_policy)))
     elif ctx.has("KeyPolicy"):

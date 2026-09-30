@@ -89,3 +89,37 @@ def test_hcl_rendering_escapes_interpolation() -> None:
     assert '"a:b" = "c"' in text
     assert "expr" in text and "jsonencode([])" in text
     assert "lifecycle {" in text
+
+
+def test_load_balancer_attribute_aliases_and_full_names() -> None:
+    lb = "arn:aws:elasticloadbalancing:us-west-2:1:loadbalancer/app/demo-lb/0123456789abcdef"
+    tg = "arn:aws:elasticloadbalancing:us-west-2:1:targetgroup/demo-tg/0123456789abcdef"
+    tpl = (
+        "Resources:\n  LB:\n    Type: AWS::ElasticLoadBalancingV2::LoadBalancer\n"
+        "  TG:\n    Type: AWS::ElasticLoadBalancingV2::TargetGroup\n"
+    )
+    stack = Stack(
+        name="s",
+        kind="env",
+        template_body=tpl,
+        resources=[
+            Resource("LB", "AWS::ElasticLoadBalancingV2::LoadBalancer", lb),
+            Resource("TG", "AWS::ElasticLoadBalancingV2::TargetGroup", tg),
+        ],
+    )
+    inv = Inventory(
+        app="a",
+        account="1",
+        region="us-west-2",
+        captured_at="x",
+        stacks={"s": stack},
+        live={lb: {"CanonicalHostedZoneId": "Z1H1FL5HABSF5"}},
+    )
+    r = Resolver(inv, stack)
+    assert r.resolve({"Fn::GetAtt": ["LB", "CanonicalHostedZoneID"]}) == "Z1H1FL5HABSF5"
+    assert r.resolve({"Fn::GetAtt": ["LB", "LoadBalancerFullName"]}) == (
+        "app/demo-lb/0123456789abcdef"
+    )
+    assert r.resolve({"Fn::GetAtt": ["TG", "TargetGroupFullName"]}) == (
+        "targetgroup/demo-tg/0123456789abcdef"
+    )
