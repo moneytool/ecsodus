@@ -91,12 +91,13 @@ def cmd_generate(a: argparse.Namespace) -> int:
     bucket = a.patch_bucket or default_patch_bucket(inv)
     if not bucket:
         return _err("no Copilot artifact bucket found; pass --patch-bucket")
-    patches = build_patches(inv, bucket, metadata_fallback=a.metadata_fallback)
+    handoff = {n for n, sp in plan.stacks.items() if sp.handoff}
+    patches = build_patches(inv, bucket, metadata_fallback=a.metadata_fallback, only=handoff)
     (out / "retain-patches").mkdir(parents=True, exist_ok=True)
     for name, p in patches.stacks.items():
-        (out / "retain-patches" / f"{name}.yml").write_text(p.result.text)
+        write_sensitive(out / "retain-patches" / f"{name}.yml", p.result.text)
     for name, r in patches.stackset.items():
-        (out / "retain-patches" / f"stackset-{name}.yml").write_text(r.text)
+        write_sensitive(out / "retain-patches" / f"stackset-{name}.yml", r.text)
     (out / "REPORT.md").write_text(report.render(plan))
     (out / "RUNBOOK.md").write_text(
         runbook.render(
@@ -146,14 +147,24 @@ def cmd_check(a: argparse.Namespace) -> int:
     if not a.manifest:
         return _err("--manifest is required")
     m = _manifest(a.manifest)
-    expected = [i["address"] for i in m["imports"]]
+    expected = {i["address"]: i["id"] for i in m["imports"]}
+    if a.phase == "import" and not a.allow_stale:
+        from datetime import UTC, datetime
+
+        age = datetime.now(UTC) - datetime.fromisoformat(m["inventory_captured_at"])
+        if age.total_seconds() > MAX_INVENTORY_AGE_S:
+            return _err(
+                "the manifest was generated from an inventory older than 24h; re-run "
+                "`ecsodus inventory` and `ecsodus generate` before importing"
+            )
 
     if a.changeset:
         docs = [json.loads(Path(p).read_text()) for p in a.changeset]
-        nested: list[str] = []
-        stacks = [a.stack] if a.stack else list(m["retain_patches"])
-        for s in stacks:
-            nested += list((m["retain_patches"].get(s) or {}).get("nested", {}))
+        nested: dict[str, str] = {}
+        patches = m["retain_patches"]
+        for s in [a.stack] if a.stack else list(patches):
+            for lid, info in ((patches.get(s) or {}).get("nested") or {}).items():
+                nested[lid] = patches[info["stack"]]["url"]
         cs_res = changeset.check_change_sets(
             docs,
             patched_nested=nested,
@@ -180,7 +191,7 @@ def cmd_check(a: argparse.Namespace) -> int:
         if not a.plan or not a.phase:
             return _err("give a plan JSON and --phase, or --state, or --changeset")
         doc = json.loads(Path(a.plan).read_text())
-        res = plan_check.check_plan(doc, expected, a.phase)
+        res = plan_check.check_plan(doc, expected, a.phase, a.forgotten or ())
     for e in res.errors:
         print(f"FAIL {e}")
     for w in res.warnings:
@@ -191,14 +202,27 @@ def cmd_check(a: argparse.Namespace) -> int:
 
 # -- verify-retain -------------------------------------------------------------------------
 def cmd_verify_retain(a: argparse.Namespace) -> int:
+    """Read-only: every resource of every stack (nested included) carries both Retain policies.
+
+    With ``--manifest`` the expected stack set is the manifest's hand-off set, every expected
+    stack must be found, and each patched stack's deployed template must hash to the patched
+    template the manifest recorded. Finding no stack at all is a failure, never a pass.
+    """
     import boto3
 
-    from ecsodus.emit.retain_patch import missing_retain
+    from ecsodus.emit.retain_patch import missing_retain, sha256
     from ecsodus.sources.aws import Clients, paginate
 
     clients = Clients(boto3.Session(profile_name=a.profile, region_name=a.region))
     cfn = clients("cloudformation")
+    manifest = _manifest(a.manifest) if a.manifest else None
     names = list(a.stack or [])
+    if not names and manifest:
+        names = [
+            n
+            for n in manifest["handoff_stacks"]
+            if not (manifest["retain_patches"].get(n) or {}).get("parent")
+        ]
     if not names:
         for s in paginate(cfn, "list_stacks", "StackSummaries"):
             if s.get("StackStatus") == "DELETE_COMPLETE":
@@ -207,15 +231,27 @@ def cmd_verify_retain(a: argparse.Namespace) -> int:
             tags = {t["Key"]: t["Value"] for t in d.get("Tags") or []}
             if tags.get("copilot-application") == a.app and not d.get("ParentId"):
                 names.append(d["StackName"])
+    if not names:
+        print(f"FAIL no stacks found for app {a.app!r}; wrong app, account or region?")
+        return 1
     failed = False
     seen: set[str] = set()
+    checked: set[str] = set()
 
-    def check(stack_id: str, label: str) -> None:
+    def check(stack_ref: str, label: str) -> None:
         nonlocal failed
-        if stack_id in seen:
+        if stack_ref in seen:
             return
-        seen.add(stack_id)
-        body = cfn.get_template(StackName=stack_id, TemplateStage="Original")["TemplateBody"]
+        seen.add(stack_ref)
+        try:
+            desc = cfn.describe_stacks(StackName=stack_ref)["Stacks"][0]
+        except Exception as exc:  # noqa: BLE001
+            failed = True
+            print(f"FAIL {label}: cannot describe stack: {exc}")
+            return
+        name = desc["StackName"]
+        checked.add(name)
+        body = cfn.get_template(StackName=stack_ref, TemplateStage="Original")["TemplateBody"]
         if not isinstance(body, str):
             body = json.dumps(body)
         missing = missing_retain(body)
@@ -228,14 +264,62 @@ def cmd_verify_retain(a: argparse.Namespace) -> int:
             )
         else:
             print(f"ok   {label}")
+        if manifest:
+            want = (manifest["retain_patches"].get(name) or {}).get("sha256")
+            if want and sha256(body) != want:
+                failed = True
+                print(
+                    f"FAIL {label}: deployed template does not match the patched template "
+                    "recorded in the manifest"
+                )
         for r in paginate(
-            cfn, "list_stack_resources", "StackResourceSummaries", StackName=stack_id
+            cfn, "list_stack_resources", "StackResourceSummaries", StackName=stack_ref
         ):
             if r["ResourceType"] == "AWS::CloudFormation::Stack" and r.get("PhysicalResourceId"):
                 check(r["PhysicalResourceId"], f"{label}/{r['LogicalResourceId']}")
 
     for n in names:
         check(n, n)
+    if manifest and not a.stack:
+        for missing_stack in sorted(set(manifest["handoff_stacks"]) - checked):
+            failed = True
+            print(f"FAIL {missing_stack}: expected by the manifest but not found")
+    return 1 if failed else 0
+
+
+def cmd_verify_fresh(a: argparse.Namespace) -> int:
+    """Read-only: the account, region and stacks are exactly those the manifest was made from."""
+    import boto3
+
+    from ecsodus.sources.aws import Clients
+
+    m = _manifest(a.manifest)
+    clients = Clients(boto3.Session(profile_name=a.profile, region_name=a.region))
+    failed = False
+    account = clients("sts").get_caller_identity()["Account"]
+    if account != m["account"] or clients.region != m["region"]:
+        print(
+            f"FAIL caller is {account}/{clients.region}, manifest is {m['account']}/{m['region']}"
+        )
+        return 1
+    cfn = clients("cloudformation")
+    for name, recorded in sorted(m["stack_last_updated"].items()):
+        try:
+            d = cfn.describe_stacks(StackName=name)["Stacks"][0]
+        except Exception as exc:  # noqa: BLE001
+            failed = True
+            print(f"FAIL {name}: {exc}")
+            continue
+        last = d.get("LastUpdatedTime") or d.get("CreationTime")
+        now = last.isoformat() if hasattr(last, "isoformat") else str(last)
+        if now != recorded:
+            failed = True
+            print(
+                f"FAIL {name}: changed since the inventory ({recorded} -> {now}); "
+                "re-run inventory and generate"
+            )
+        else:
+            print(f"ok   {name}")
     return 1 if failed else 0
 
 
@@ -305,13 +389,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="accept Dynamic entries caused by patched nested stacks (PLAN §13.3)",
     )
     s.add_argument("--template-diff", nargs=2, metavar=("CURRENT", "PATCHED"))
+    s.add_argument("--allow-stale", action="store_true", help="skip the 24h manifest check")
+    s.add_argument(
+        "--forgotten",
+        action="append",
+        metavar="ADDRESS",
+        help="address handed off with a removed{destroy=false} block (steady phase)",
+    )
     s.set_defaults(fn=cmd_check)
 
     s = sub.add_parser("verify-retain", help="confirm every stack resource is Retain (read-only)")
     s.add_argument("--app", required=True)
     s.add_argument("--stack", action="append")
+    s.add_argument("--manifest", help="require the manifest's stacks and patched template hashes")
     aws_opts(s)
     s.set_defaults(fn=cmd_verify_retain)
+
+    s = sub.add_parser("verify-fresh", help="confirm account, region and stacks match the manifest")
+    s.add_argument("--manifest", required=True)
+    aws_opts(s)
+    s.set_defaults(fn=cmd_verify_fresh)
     return p
 
 

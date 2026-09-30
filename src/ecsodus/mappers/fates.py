@@ -17,6 +17,7 @@ Propagation (to a fixpoint):
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -118,23 +119,31 @@ def build_plan(inv: Inventory) -> MigrationPlan:
             ]
             continue
         resolvers[stack.name] = Resolver(inv, stack, templates[stack.name])
+        transform = _uses_transform(templates[stack.name])
+        if transform:
+            mapped[stack.name] = [
+                ResourcePlan(
+                    stack.name,
+                    r.logical_id,
+                    r.type,
+                    r.physical_id,
+                    BLOCKED,
+                    f"template uses {transform}; blocked in v0.1",
+                )
+                for r in stack.resources
+            ]
+            continue
         mapped[stack.name] = _map_stack(inv, stack, resolvers[stack.name], templates[stack.name])
+        _classify_lambdas(templates[stack.name], mapped[stack.name])
 
     _seed_kept(inv, plan, mapped)
     _propagate(inv, plan)
 
     for stack in inv.stacks.values():
-        handoff = plan.stacks[stack.name].handoff
-        for rp in mapped[stack.name]:
-            if not handoff and rp.fate in (IMPORT, BLOCKED):
-                rp.reason = f"stack kept ({'; '.join(plan.stacks[stack.name].kept_because)})" + (
-                    f"; would be: {rp.fate}" if rp.fate != IMPORT else ""
-                )
-                rp.fate = RETAIN_UNDER_EXISTING_OWNER
-                rp.spec = None
-                rp.tf_address = None
-            plan.resources.append(rp)
+        plan.resources.extend(mapped[stack.name])
 
+    _out_of_band(inv, plan)
+    _demote_kept(inv, plan)
     _closure(plan)
     _teardown(inv, plan)
     for stack in inv.stacks.values():
@@ -146,6 +155,59 @@ def build_plan(inv: Inventory) -> MigrationPlan:
         if s.name in templates:
             plan.express[f"{s.env}/{s.workload}"] = _express_fit(inv, s, templates[s.name])
     return plan
+
+
+def _uses_transform(template: dict[str, Any]) -> str | None:
+    """Macros change what CloudFormation deploys versus the Original template (SAM, ForEach,
+    AWS::Include), so neither the patch nor verify-retain would see the real resources."""
+    if template.get("Transform"):
+        return f"Transform {template['Transform']}"
+    for key in template.get("Resources") or {}:
+        if str(key).startswith("Fn::"):
+            return str(key).split("::", 2)[0] + "::" + str(key).split("::")[1]
+    if "Fn::Transform" in json.dumps(template):
+        return "Fn::Transform"
+    return None
+
+
+def _classify_lambdas(template: dict[str, Any], rows: list[ResourcePlan]) -> None:
+    """Only custom-resource handlers are Copilot-internal. A Lambda that no ``Custom::``
+    resource uses as its ``ServiceToken`` is a user function (addons): blocked in v0.1, never
+    sent to manual cleanup."""
+    bodies = template.get("Resources") or {}
+    handlers: set[str] = set()
+    for body in bodies.values():
+        if str(body.get("Type", "")).startswith("Custom::") or body.get("Type") == (
+            "AWS::CloudFormation::CustomResource"
+        ):
+            handlers |= cfn.references((body.get("Properties") or {}).get("ServiceToken"))
+    for rp in rows:
+        if rp.fate != MANUAL_CLEANUP:
+            continue
+        if rp.type == "AWS::Lambda::Function" and rp.logical_id not in handlers:
+            rp.fate = BLOCKED
+            rp.reason = "Lambda function is not a custom-resource handler (user function)"
+        elif rp.type == "AWS::Lambda::Permission":
+            fn = (bodies.get(rp.logical_id) or {}).get("Properties", {}).get("FunctionName")
+            if not (cfn.references(fn) & handlers):
+                rp.fate = BLOCKED
+                rp.reason = "Lambda permission for a function that is not a custom-resource handler"
+
+
+def _demote_kept(inv: Inventory, plan: MigrationPlan) -> None:
+    """Propagate kept status again (out-of-band blockers may add some) and demote every
+    import in a kept stack to retain-under-existing-owner: no stack is ever split."""
+    _propagate(inv, plan)
+    for rp in plan.resources:
+        sp = plan.stacks.get(rp.stack)
+        if sp is None or sp.handoff or rp.fate not in (IMPORT, BLOCKED):
+            continue
+        rp.reason = f"stack kept ({'; '.join(sp.kept_because)})" + (
+            f"; would be: {rp.fate}: {rp.reason}" if rp.fate != IMPORT else ""
+        )
+        rp.fate = RETAIN_UNDER_EXISTING_OWNER
+        rp.spec = None
+        rp.tf_address = None
 
 
 def _map_stack(
@@ -282,6 +344,14 @@ def _propagate(inv: Inventory, plan: MigrationPlan) -> None:
         if any_env_kept:
             for s in app_layer:
                 keep(s.name, "an environment of the app is kept")
+        elsewhere = [u for u in inv.unavailable if "env" in u or "stackset_instance" in u]
+        if elsewhere:
+            for s in app_layer:
+                keep(
+                    s.name,
+                    "the app has environments or StackSet instances outside this "
+                    f"account/region ({len(elsewhere)})",
+                )
         if any(not plan.stacks[s.name].handoff for s in app_layer):
             for s in app_layer:
                 keep(s.name, "the app layer is handed off together")
@@ -297,53 +367,118 @@ def _propagate(inv: Inventory, plan: MigrationPlan) -> None:
 
 
 def _closure(plan: MigrationPlan) -> None:
-    """An imported resource must not depend on anything that manual cleanup will delete."""
-    cleanup = [r for r in plan.resources if r.fate == MANUAL_CLEANUP and r.physical_id]
-    cleanup_by_stack: dict[str, set[str]] = {}
-    for r in cleanup:
-        cleanup_by_stack.setdefault(r.stack, set()).add(r.logical_id)
+    """Nothing that survives may depend on something manual cleanup will delete.
+
+    "Surviving" covers imported resources *and* everything in kept stacks (they keep running on
+    Copilot). Dependencies are found through template references within a stack and through
+    literal ID/ARN strings anywhere (imported arguments, kept stacks' templates and parameters).
+    """
     inv = plan.inventory
+    cleanup = [
+        r
+        for r in plan.resources
+        if r.fate == MANUAL_CLEANUP and r.physical_id and not r.type.startswith("Custom::")
+    ]
+    cleanup_lids: dict[str, set[str]] = {}
+    for r in cleanup:
+        cleanup_lids.setdefault(r.stack, set()).add(r.logical_id)
     for rp in plan.imports():
-        stack = inv.stacks[rp.stack]
+        stack = inv.stacks.get(rp.stack)
+        if stack is None:
+            continue
         body = cfn.load(stack.template_body)["Resources"].get(rp.logical_id) or {}
-        refs = cfn.references(body.get("Properties") or {})
-        for lid in refs & cleanup_by_stack.get(rp.stack, set()):
-            target = stack.resource(lid)
-            # Reading a custom resource's output is a captured value, not a live dependency.
-            if target is not None and target.type.startswith("Custom::"):
-                continue
+        for lid in cfn.references(body.get("Properties") or {}) & cleanup_lids.get(rp.stack, set()):
             plan.closure_errors.append(
                 f"{rp.tf_address} references {rp.stack}/{lid}, which is manual-cleanup"
             )
-        rendered = repr(rp.spec.body) if rp.spec else ""
-        for r in cleanup:
-            if r.type.startswith("Custom::") or not r.physical_id or len(r.physical_id) < 8:
+    haystacks: list[tuple[str, str]] = [
+        (rp.tf_address or rp.logical_id, repr(rp.spec.body))
+        for rp in plan.imports()
+        if rp.spec is not None
+    ]
+    for name, sp in plan.stacks.items():
+        if not sp.handoff and name in inv.stacks:
+            st = inv.stacks[name]
+            haystacks.append((f"kept stack {name}", st.template_body + repr(st.parameters)))
+    for r in cleanup:
+        pid = r.physical_id or ""
+        if len(pid) < 8:
+            continue
+        # A kept stack referencing its *own* manual-cleanup resource is fine: it is not deleted.
+        needles = {pid, pid.rsplit(":", 1)[-1] if pid.startswith("arn:") else pid}
+        for label, text in haystacks:
+            if label == f"kept stack {r.stack}":
                 continue
-            if r.physical_id in rendered:
+            if any(n and n in text for n in needles):
                 plan.closure_errors.append(
-                    f"{rp.tf_address} embeds the id of {r.stack}/{r.logical_id} "
-                    f"({r.type}), which is manual-cleanup"
+                    f"{label} depends on {r.stack}/{r.logical_id} ({r.type}), which is "
+                    "manual-cleanup"
                 )
 
 
 def _teardown(inv: Inventory, plan: MigrationPlan) -> None:
+    """Deletion order over handed-off stacks.
+
+    Hand-off already implies no remaining consumer (propagation keeps every shared stack that a
+    kept stack needs), so every handed-off stack is deletable and nothing is truncated: a kept
+    environment never removes an independent, handed-off environment from the list (that would
+    leave imported resources inside a live stack). ``teardown_stops_at`` names the first kept
+    shared stack for the report.
+    """
     order: list[Stack] = []
-    order += sorted(inv.stacks_of(WORKLOAD), key=lambda s: s.name)
-    order += sorted(inv.stacks_of(ADDONS), key=lambda s: s.name)
-    order += sorted(inv.stacks_of(ENV), key=lambda s: s.name)
-    order += sorted(inv.stacks_of(ENV_ADDONS), key=lambda s: s.name)
-    order += sorted(inv.stacks_of(STACKSET_INSTANCE), key=lambda s: s.name)
-    order += sorted(inv.stacks_of(APP), key=lambda s: s.name)
+    for kind in (WORKLOAD, ADDONS, ENV, ENV_ADDONS, STACKSET_INSTANCE, APP):
+        order += sorted(inv.stacks_of(kind), key=lambda s: s.name)
     for s in order:
         if plan.stacks[s.name].handoff:
             plan.teardown.append(s.name)
         elif s.kind in (ENV, STACKSET_INSTANCE, APP) and plan.teardown_stops_at is None:
             plan.teardown_stops_at = s.name
-    if plan.teardown_stops_at:
-        # Nothing at or after the first kept shared stack may be deleted.
-        idx = [s.name for s in order].index(plan.teardown_stops_at)
-        later = {s.name for s in order[idx:]}
-        plan.teardown = [n for n in plan.teardown if n not in later]
+
+
+def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
+    """Give objects that custom resources created outside CloudFormation a fate (PLAN §2.2).
+
+    * ACM certificates created by a Copilot custom resource: imported with the creating stack's
+      hand-off, otherwise kept with it.
+    * Route 53 records inside an imported hosted zone that no CloudFormation RecordSet owns
+      (alias A records, validation CNAMEs, NS delegations): imported; a record shape ecsodus
+      cannot reproduce exactly blocks the zone's stack.
+    """
+    from ecsodus.mappers import tf_oob
+
+    names = {r.tf_address for r in plan.resources if r.tf_address}
+    for obj in inv.out_of_band:
+        stack_name = obj.created_by.split("/", 1)[0]
+        handoff = plan.stacks.get(stack_name) is not None and plan.stacks[stack_name].handoff
+        rp = tf_oob.plan_certificate(obj, stack_name, handoff, names)
+        plan.resources.append(rp)
+    owned_records: set[tuple[str, str]] = set()
+    for st in inv.stacks.values():
+        try:
+            tpl = cfn.load(st.template_body)
+        except cfn.TemplateError:
+            continue
+        res = Resolver(inv, st, tpl)
+        for body in (tpl.get("Resources") or {}).values():
+            if body.get("Type") != "AWS::Route53::RecordSet":
+                continue
+            try:
+                props = res.resolve(body.get("Properties") or {}) or {}
+            except Unresolvable:
+                continue
+            owned_records.add(
+                (str(props.get("Name", "")).rstrip(".").lower(), str(props.get("Type", "")))
+            )
+    for rp in list(plan.imports()):
+        if rp.type != "AWS::Route53::HostedZone" or rp.physical_id is None:
+            continue
+        live = inv.live.get(rp.physical_id) or {}
+        for rp2 in tf_oob.plan_zone_records(rp, live, owned_records, names):
+            plan.resources.append(rp2)
+            if rp2.fate == BLOCKED:
+                sp = plan.stacks[rp.stack]
+                sp.handoff = False
+                sp.kept_because.append(f"out-of-band record blocked: {rp2.reason}")
 
 
 def _side_effects(stack: Stack, template: dict[str, Any], resolver: Resolver) -> list[str]:

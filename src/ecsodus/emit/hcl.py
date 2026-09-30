@@ -52,7 +52,7 @@ def value(v: Any, indent: int = 0) -> str:
             return "{}"
         lines = []
         for k, x in v.items():
-            key = k if _ident_ok(k) else json.dumps(k)
+            key = k if _ident_ok(k) else json.dumps(k).replace("${", "$${").replace("%{", "%%{")
             lines.append(f"{pad}  {key} = {value(x, indent + 1)}")
         return "{\n" + "\n".join(lines) + f"\n{pad}}}"
     raise TypeError(f"cannot render {type(v).__name__} as HCL")

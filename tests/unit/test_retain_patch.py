@@ -114,3 +114,25 @@ def test_override_on_non_stack_is_refused() -> None:
     text = "Resources:\n  T:\n    Type: AWS::SNS::Topic\n"
     with pytest.raises(cfn.TemplateError):
         patch_template(text, {"T": "https://x"})
+
+
+def test_tagged_mapping_patches_after_semantic_load() -> None:
+    # Regression: the semantic loader's `!` constructor leaked into the round-trip loader, so
+    # once any template had been loaded, a tagged mapping (Copilot's Aurora addon writes
+    # `!GetAZs {Ref: AWS::Region}`) made patch_template fail to parse.
+    text = (
+        "Resources:\n"
+        "  I:\n"
+        "    Type: AWS::RDS::DBInstance\n"
+        "    Properties:\n"
+        "      AvailabilityZone: !Select\n"
+        "        - 0\n"
+        "        - !GetAZs\n"
+        "          Ref: AWS::Region\n"
+        "      Other: !GetAZs {Ref: AWS::Region}\n"
+    )
+    props = cfn.load(text)["Resources"]["I"]["Properties"]
+    assert props["Other"] == {"Fn::GetAZs": {"Ref": "AWS::Region"}}
+    out = patch_template(text).text
+    assert not verify_patch(text, out)
+    assert cfn.load(out)["Resources"]["I"]["DeletionPolicy"] == "Retain"

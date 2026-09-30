@@ -71,7 +71,11 @@ def inventory(
     inv = Inventory(app=app, account=sts["Account"], region=clients.region, captured_at=now_iso())
     cfn = clients("cloudformation")
 
-    summaries = paginate(cfn, "list_stacks", "StackSummaries", StackStatusFilter=LIVE_STATUSES)
+    summaries = [
+        x
+        for x in paginate(cfn, "list_stacks", "StackSummaries")
+        if x.get("StackStatus") != "DELETE_COMPLETE"
+    ]
     described = _describe_all(cfn, [s["StackName"] for s in summaries])
     by_id = {d["StackId"]: d for d in described}
 
@@ -81,9 +85,8 @@ def inventory(
         tags = {t["Key"]: t["Value"] for t in d.get("Tags") or []}
         if tags.get(TAG_APP) != app or d.get("ParentId"):
             continue
-        env = tags.get(TAG_ENV)
-        if wanted_envs is not None and env and env not in wanted_envs:
-            continue
+        # Every environment is discovered even when --env narrows the migration: a shared stack
+        # can only be torn down if no environment still consumes it (code review finding 9).
         roots.append(d)
 
     meta = _ssm_metadata(clients, app)
@@ -105,8 +108,14 @@ def inventory(
             continue
         inv.stacks[stack.name] = stack
 
-    # Nested stacks (addons), any depth.
-    for d in described:
+    # Nested stacks (addons), any depth: parents before children.
+    def depth(desc: dict[str, Any]) -> int:
+        n, cur = 0, desc
+        while cur.get("ParentId") and cur["ParentId"] in by_id:
+            n, cur = n + 1, by_id[cur["ParentId"]]
+        return n
+
+    for d in sorted(described, key=depth):
         root_id = d.get("RootId")
         parent_id = d.get("ParentId")
         if not parent_id or root_id not in by_id:
@@ -131,10 +140,33 @@ def inventory(
 
     inv.envs = sorted({s.env for s in inv.stacks.values() if s.kind == ENV and s.env})
     keep = set(keep_on_copilot)
+    known = {s.workload for s in inv.stacks.values() if s.kind == WORKLOAD} | {
+        f"{s.env}/{s.workload}" for s in inv.stacks.values() if s.kind == WORKLOAD
+    }
+    unknown = sorted(keep - known)
+    if unknown:
+        raise ValueError(f"--keep-on-copilot names no workload in this app: {', '.join(unknown)}")
+    if wanted_envs:
+        missing_envs = sorted(set(wanted_envs) - set(inv.envs))
+        if missing_envs:
+            raise ValueError(f"--env names no environment stack here: {', '.join(missing_envs)}")
+    for env_name in sorted(set(meta["envs"]) - set(inv.envs)):
+        inv.unavailable.append(
+            {
+                "env": env_name,
+                "reason": "environment registered in SSM but no stack in this account/region",
+            }
+        )
     for s in inv.stacks.values():
         if s.kind == WORKLOAD and s.workload and s.env:
-            migrate = not ({s.workload, f"{s.env}/{s.workload}"} & keep)
+            migrate = not ({s.workload, f"{s.env}/{s.workload}"} & keep) and (
+                wanted_envs is None or s.env in wanted_envs
+            )
             inv.workloads.append(Workload(s.workload, s.workload_type or "unknown", s.env, migrate))
+    inv.selection = {
+        "envs": sorted(wanted_envs) if wanted_envs else [],
+        "keep_on_copilot": sorted(keep),
+    }
     inv.ssm_parameters = _ssm_parameter_names(clients, app)
     live_reads.read_live(clients, inv)
     inv.out_of_band = _out_of_band(clients, inv)

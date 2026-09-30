@@ -108,6 +108,8 @@ class Inventory:
     ssm_parameters: list[dict[str, str]] = field(default_factory=list)  # name, type (no values)
     disputed: list[dict[str, Any]] = field(default_factory=list)
     unavailable: list[dict[str, Any]] = field(default_factory=list)
+    # How the inventory was taken, replayed by the runbook (envs, keep_on_copilot, profile...).
+    selection: dict[str, Any] = field(default_factory=dict)
 
     # -- helpers ---------------------------------------------------------------------------
     def stacks_of(self, kind: str) -> list[Stack]:
@@ -155,6 +157,7 @@ class Inventory:
             ssm_parameters=list(data.get("ssm_parameters", [])),
             disputed=list(data.get("disputed", [])),
             unavailable=list(data.get("unavailable", [])),
+            selection=dict(data.get("selection", {})),
         )
 
     @classmethod

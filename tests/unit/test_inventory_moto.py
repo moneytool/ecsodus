@@ -111,8 +111,17 @@ def test_keep_on_copilot(aws) -> None:
 
 
 def test_env_filter(aws) -> None:
-    inv = copilot.inventory(Clients(aws), "shop", envs=["prod"])
-    assert inv.stacks == {}
+    # --env narrows the migration, never the discovery: other envs stay visible as consumers.
+    with pytest.raises(ValueError, match="no environment stack"):
+        copilot.inventory(Clients(aws), "shop", envs=["prod"])
+    inv = copilot.inventory(Clients(aws), "shop", envs=["test"])
+    assert set(inv.stacks) == {"shop-test", "shop-test-web"}
+    assert inv.selection == {"envs": ["test"], "keep_on_copilot": []}
+
+
+def test_unknown_keep_name_is_an_error(aws) -> None:
+    with pytest.raises(ValueError, match="no workload"):
+        copilot.inventory(Clients(aws), "shop", keep_on_copilot=["test/wbe"])
 
 
 def test_live_log_groups(aws) -> None:

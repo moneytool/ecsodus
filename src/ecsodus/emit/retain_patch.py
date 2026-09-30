@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -163,13 +164,15 @@ def _json_indent(text: str) -> int | None:
     return None
 
 
-def _strip(template: dict[str, Any], overrides: Mapping[str, str]) -> dict[str, Any]:
+def _strip(
+    template: dict[str, Any], overrides: Mapping[str, str], metadata_fallback: bool
+) -> dict[str, Any]:
     t = copy.deepcopy(template)
     for lid, body in t["Resources"].items():
         for attr in POLICY_ATTRIBUTES:
             body.pop(attr, None)
         meta = body.get("Metadata")
-        if isinstance(meta, dict):
+        if metadata_fallback and isinstance(meta, dict):
             meta.pop(METADATA_KEY, None)
             if not meta:
                 body.pop("Metadata")
@@ -205,9 +208,47 @@ def verify_patch(
                 problems.append(f"{lid}: TemplateURL is {url!r}, expected {overrides[lid]!r}")
         if metadata_fallback and (body.get("Metadata") or {}).get(METADATA_KEY) != "true":
             problems.append(f"{lid}: missing Metadata {METADATA_KEY}")
-    if _strip(before, overrides) != _strip(after, overrides):
+    # Canonical JSON keeps scalar types distinct (1, 1.0, true and "1" differ; == would not).
+    if _canonical(_strip(before, overrides, metadata_fallback)) != _canonical(
+        _strip(after, overrides, metadata_fallback)
+    ):
         problems.append("template changed outside the permitted retain-patch edits")
+    if not cfn.is_json(original) and _skeleton(original) != _skeleton(patched):
+        problems.append("template text changed outside the permitted retain-patch lines")
     return problems
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
+_EDIT_KEY = re.compile(r"^(\s*)(DeletionPolicy|UpdateReplacePolicy|TemplateURL)\s*:")
+_META_LINE = re.compile(r"^\s*(Metadata:\s*|'ecsodus:retain': 'true'\s*)$")
+
+
+def _skeleton(text: str) -> list[str]:
+    """The template's lines minus every line a retain patch may add, replace or remove.
+
+    Removed: policy and TemplateURL key lines with their continuation lines, and the Metadata
+    fallback lines. Everything else must be byte-identical between original and patched.
+    """
+    out: list[str] = []
+    skipping_indent: int | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if skipping_indent is not None:
+            if stripped and not stripped.startswith("#") and indent > skipping_indent:
+                continue
+            skipping_indent = None
+        m = _EDIT_KEY.match(line)
+        if m:
+            skipping_indent = len(m.group(1))
+            continue
+        if _META_LINE.match(line):
+            continue
+        out.append(line)
+    return out
 
 
 def missing_retain(text: str) -> list[str]:

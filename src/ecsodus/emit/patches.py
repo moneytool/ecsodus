@@ -34,7 +34,14 @@ def s3_url(bucket: str, region: str, key: str) -> str:
     return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
 
 
-def build_patches(inv: Inventory, bucket: str, metadata_fallback: bool = False) -> PatchSet:
+def build_patches(
+    inv: Inventory,
+    bucket: str,
+    metadata_fallback: bool = False,
+    only: set[str] | None = None,
+) -> PatchSet:
+    """Patch every stack in ``only`` (default: all). Kept stacks are never patched or touched,
+    so an unpatchable kept stack cannot abort generation."""
     ps = PatchSet(bucket=bucket)
 
     # Children before parents: deepest nesting first.
@@ -45,11 +52,17 @@ def build_patches(inv: Inventory, bucket: str, metadata_fallback: bool = False) 
         return d
 
     for name in sorted(inv.stacks, key=depth, reverse=True):
+        if only is not None and name not in only:
+            continue
         stack = inv.stacks[name]
         overrides: dict[str, str] = {}
         children: dict[str, str] = {}
         for child in inv.children(name):
-            if child.kind in (ADDONS, ENV_ADDONS) and child.parent_logical_id:
+            if (
+                child.kind in (ADDONS, ENV_ADDONS)
+                and child.parent_logical_id
+                and (child.name in ps.stacks)
+            ):
                 overrides[child.parent_logical_id] = ps.stacks[child.name].url
                 children[child.parent_logical_id] = child.name
         result = patch_template(stack.template_body, overrides, metadata_fallback)
@@ -62,8 +75,11 @@ def build_patches(inv: Inventory, bucket: str, metadata_fallback: bool = False) 
             already_retained=not result.changed_resources,
             children=children,
         )
+    instance_selected = only is None or any(
+        n in inv.stacks and inv.stacks[n].kind == "stackset-instance" for n in only
+    )
     for name, ss in inv.stacksets.items():
-        if ss.template_body:
+        if ss.template_body and instance_selected:
             ps.stackset[name] = patch_template(ss.template_body, {}, metadata_fallback)
     return ps
 

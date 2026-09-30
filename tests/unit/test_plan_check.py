@@ -18,6 +18,22 @@ def plan(*rcs):
     return {"format_version": "1.2", "resource_changes": list(rcs)}
 
 
+def test_import_id_must_match_manifest() -> None:
+    p = plan(change("aws_s3_bucket.a", ["no-op"], True))
+    assert check_plan(p, {"aws_s3_bucket.a": "x"}, IMPORT).ok
+    r = check_plan(p, {"aws_s3_bucket.a": "prod-bucket"}, IMPORT)
+    assert not r.ok and "manifest expects" in r.errors[0]
+
+
+def test_steady_requires_full_coverage() -> None:
+    assert not check_plan(plan(), ["aws_s3_bucket.a"], STEADY).ok  # empty/targeted plan
+    assert check_plan(plan(change("aws_s3_bucket.a", ["no-op"])), ["aws_s3_bucket.a"], STEADY).ok
+
+
+def test_errored_plan_fails() -> None:
+    assert not check_plan({"format_version": "1.2", "errored": True}, [], STEADY).ok
+
+
 def test_pure_imports_pass() -> None:
     p = plan(change("aws_sns_topic.a", ["no-op"], True), change("aws_sns_topic.b", ["no-op"], True))
     assert check_plan(p, ["aws_sns_topic.a", "aws_sns_topic.b"], IMPORT).ok
@@ -32,7 +48,8 @@ def test_import_with_update_fails() -> None:
 def test_replace_and_create_fail() -> None:
     p = plan(change("aws_lb.a", ["delete", "create"], True), change("aws_lb.b", ["create"]))
     r = check_plan(p, ["aws_lb.a"], IMPORT)
-    assert len(r.errors) == 2
+    assert any("delete/create" in e for e in r.errors)
+    assert any("aws_lb.b: create" in e for e in r.errors)
 
 
 def test_missing_and_unexpected_imports() -> None:
@@ -43,14 +60,15 @@ def test_missing_and_unexpected_imports() -> None:
 
 
 def test_steady_requires_zero_changes() -> None:
-    assert check_plan(plan(change("a.b", ["no-op"])), [], STEADY).ok
+    assert check_plan(plan(change("a.b", ["no-op"])), ["a.b"], STEADY).ok
     assert not check_plan(plan(change("a.b", ["update"])), [], STEADY).ok
     assert not check_plan(plan(change("a.b", ["no-op"], True)), [], STEADY).ok
 
 
-def test_data_sources_read_is_allowed() -> None:
-    p = plan(change("data.aws_caller_identity.c", ["read"], mode="data"))
-    assert check_plan(p, [], STEADY).ok
+def test_data_sources_are_rejected() -> None:
+    p = plan(change("data.aws_secretsmanager_secret_version.s", ["read"], mode="data"))
+    assert not check_plan(p, [], STEADY).ok
+    assert not check_plan(p, [], IMPORT).ok
 
 
 def test_rejects_non_plan_documents() -> None:
@@ -62,3 +80,10 @@ def test_state_check() -> None:
     assert check_state(["a.b", "c.d"], ["a.b"]).ok
     r = check_state(["a.b"], ["a.b", "c.d"])
     assert not r.ok and "c.d" in r.errors[0]
+
+
+def test_forgotten_task_definition_in_steady_phase() -> None:
+    p = plan(change("aws_ecs_task_definition.td", ["forget"]), change("aws_sns_topic.a", ["no-op"]))
+    expected = ["aws_ecs_task_definition.td", "aws_sns_topic.a"]
+    assert not check_plan(p, expected, STEADY).ok
+    assert check_plan(p, expected, STEADY, forgotten=["aws_ecs_task_definition.td"]).ok

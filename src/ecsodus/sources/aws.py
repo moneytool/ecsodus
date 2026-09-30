@@ -16,6 +16,16 @@ READ_PREFIXES = ("describe_", "list_", "get_", "lookup_")
 FORBIDDEN = {
     ("secretsmanager", "get_secret_value"),
     ("secretsmanager", "batch_get_secret_value"),
+    ("s3", "get_object"),  # env files and arbitrary data
+    ("lambda", "get_function"),  # returns environment variables
+    ("lambda", "get_function_configuration"),
+    ("kms", "get_parameters_for_import"),
+}
+SSM_DECRYPTING = {
+    "get_parameter",
+    "get_parameters",
+    "get_parameters_by_path",
+    "get_parameter_history",
 }
 NEUTRAL = {"get_paginator", "get_waiter", "can_paginate", "meta", "exceptions"}
 
@@ -39,11 +49,7 @@ class ReadOnlyClient:
         if (self._service, name) in FORBIDDEN:
             raise ReadOnlyViolation(f"{self._service}:{name} returns secret values; forbidden")
         fn = getattr(self._client, name)
-        if self._service == "ssm" and name in (
-            "get_parameter",
-            "get_parameters",
-            "get_parameters_by_path",
-        ):
+        if self._service == "ssm" and name in SSM_DECRYPTING:
 
             def guarded(**kwargs: Any) -> Any:
                 if kwargs.get("WithDecryption"):
@@ -56,7 +62,22 @@ class ReadOnlyClient:
     def _paginator(self, operation: str) -> Any:
         if not operation.startswith(READ_PREFIXES):
             raise ReadOnlyViolation(f"{self._service}:{operation} paginator is not a read")
-        return self._client.get_paginator(operation)
+        if (self._service, operation) in FORBIDDEN:
+            raise ReadOnlyViolation(f"{self._service}:{operation} returns secret values")
+        return _GuardedPaginator(self._client.get_paginator(operation), self._service)
+
+
+class _GuardedPaginator:
+    """Applies the same argument restrictions as direct calls (no SSM decryption)."""
+
+    def __init__(self, paginator: Any, service: str):
+        self._paginator = paginator
+        self._service = service
+
+    def paginate(self, **kwargs: Any) -> Any:
+        if self._service == "ssm" and kwargs.get("WithDecryption"):
+            raise ReadOnlyViolation("ssm WithDecryption=True is forbidden")
+        return self._paginator.paginate(**kwargs)
 
 
 class Clients:

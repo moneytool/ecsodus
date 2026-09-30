@@ -103,3 +103,85 @@ def test_closure_catches_reference_to_manual_cleanup() -> None:
     )
     plan = build_plan(inv)
     assert any("CustomDomainFunction" in e for e in plan.closure_errors)
+
+
+def test_independent_env_not_truncated_by_kept_env() -> None:
+    """A kept env must not truncate an independent handed-off env (dual ownership)."""
+    import copy
+
+    inv = app()
+    env2 = copy.deepcopy(inv.stacks["demo-test"])
+    env2.name, env2.env = "demo-zprod", "zprod"
+    inv.stacks[env2.name] = env2
+    inv.envs.append("zprod")
+    inv.stacks["demo-test-worker"].workload_type = "Worker Service"  # keeps env "test"
+    plan = build_plan(inv)
+    assert not plan.stacks["demo-test"].handoff
+    assert plan.stacks["demo-zprod"].handoff
+    assert "demo-zprod" in plan.teardown
+    for rp in plan.resources:
+        if rp.fate == IMPORT:
+            assert plan.stacks[rp.stack].handoff and rp.stack in plan.teardown
+
+
+def test_kept_stack_depending_on_cleanup_resource_is_a_closure_error() -> None:
+    inv = app(worker_migrates=False)
+    worker = inv.stacks["demo-test-worker"]
+    worker.template_body += (
+        "  Uses:\n    Type: AWS::SNS::Topic\n    Properties:\n"
+        "      DisplayName: demo-test-api-EnvCtl-Z9\n"
+    )
+    plan = build_plan(inv)
+    assert any("kept stack demo-test-worker" in e for e in plan.closure_errors)
+
+
+def test_out_of_band_certificate_gets_a_fate() -> None:
+    from ecsodus.model import OutOfBand
+
+    inv = app()
+    arn = "arn:aws:acm:us-west-2:123456789012:certificate/abc"
+    inv.out_of_band.append(
+        OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", {"DomainName": "api.example.com"})
+    )
+    plan = build_plan(inv)
+    cert = [r for r in plan.resources if r.physical_id == arn][0]
+    assert cert.fate == IMPORT and cert.spec.tf_type == "aws_acm_certificate"
+    kept = build_plan(app(worker_type="Worker Service"))
+    inv2 = app(worker_type="Worker Service")
+    inv2.out_of_band.append(
+        OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", {"DomainName": "api.example.com"})
+    )
+    plan2 = build_plan(inv2)
+    assert [r for r in plan2.resources if r.physical_id == arn][0].fate == (
+        RETAIN_UNDER_EXISTING_OWNER
+    )
+    assert kept is not None
+
+
+def test_user_lambda_is_blocked_not_manual_cleanup() -> None:
+    inv = app()
+    w = inv.stacks["demo-test-worker"]
+    w.template_body += "  UserFn:\n    Type: AWS::Lambda::Function\n    Properties: {}\n"
+    w.resources.append(type(w.resources[0])("UserFn", "AWS::Lambda::Function", "user-fn-1234"))
+    plan = build_plan(inv)
+    assert fates(plan, "demo-test-worker")["EnvControllerFunction"] == MANUAL_CLEANUP
+    assert not plan.stacks["demo-test-worker"].handoff
+    assert "user function" in " ".join(plan.stacks["demo-test-worker"].kept_because)
+
+
+def test_transform_templates_are_blocked() -> None:
+    inv = app()
+    inv.stacks["demo-test-worker"].template_body = (
+        "Transform: AWS::Serverless-2016-10-31\n" + inv.stacks["demo-test-worker"].template_body
+    )
+    plan = build_plan(inv)
+    assert not plan.stacks["demo-test-worker"].handoff
+    assert "Transform" in " ".join(plan.stacks["demo-test-worker"].kept_because)
+
+
+def test_envs_elsewhere_keep_the_app_layer() -> None:
+    inv = app()
+    inv.unavailable.append({"env": "prod", "reason": "registered in SSM, other region"})
+    plan = build_plan(inv)
+    assert not plan.stacks["demo-infrastructure-roles"].handoff
+    assert plan.stacks["demo-test"].handoff

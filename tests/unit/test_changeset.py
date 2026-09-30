@@ -6,15 +6,10 @@ import json
 
 from ecsodus.check.changeset import EMPTY, FAIL, PASS, check_change_sets
 
+URL = "https://b.s3.us-west-2.amazonaws.com/ecsodus/child.yml"
 
-def rc(
-    lid: str,
-    details: list,
-    action: str = "Modify",
-    replacement: str = "False",
-    rtype: str = "AWS::SNS::Topic",
-    scope: list | None = None,
-) -> dict:
+
+def rc(lid, details, action="Modify", replacement="False", rtype="AWS::SNS::Topic", scope=None):
     return {
         "Type": "Resource",
         "ResourceChange": {
@@ -28,7 +23,7 @@ def rc(
     }
 
 
-def policy(attr: str = "DeletionPolicy") -> dict:
+def policy(attr="DeletionPolicy"):
     return {
         "Target": {"Attribute": attr, "RequiresRecreation": "Never"},
         "Evaluation": "Static",
@@ -36,8 +31,36 @@ def policy(attr: str = "DeletionPolicy") -> dict:
     }
 
 
-def cs(*changes: dict, name: str = "demo-test-api") -> dict:
-    return {"StackName": name, "Status": "CREATE_COMPLETE", "Changes": list(changes)}
+def cs(*changes, name="demo-test-api", cid="root", parent=None):
+    doc = {
+        "StackName": name,
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "ChangeSetId": cid,
+        "Changes": list(changes),
+    }
+    if parent:
+        doc["ParentChangeSetId"] = parent
+    return doc
+
+
+def nested_change(url=URL, child="child"):
+    d = {
+        "Target": {
+            "Attribute": "Properties",
+            "Name": "TemplateURL",
+            "RequiresRecreation": "Never",
+            "AfterValue": url,
+        }
+    }
+    change = rc("AddonsStack", [d, policy()], rtype="AWS::CloudFormation::Stack")
+    if child:
+        change["ResourceChange"]["ChangeSetId"] = child
+    return change
+
+
+def child_cs(*changes):
+    return cs(*changes, name="child", cid="child", parent="root")
 
 
 def test_policy_only_passes() -> None:
@@ -46,41 +69,72 @@ def test_policy_only_passes() -> None:
 
 
 def test_policy_scope_without_details_passes() -> None:
-    r = check_change_sets([cs(rc("A", [], scope=["DeletionPolicy"]))])
-    assert r.verdict == PASS
+    assert check_change_sets([cs(rc("A", [], scope=["DeletionPolicy"]))]).verdict == PASS
 
 
 def test_property_change_fails() -> None:
     d = {"Target": {"Attribute": "Properties", "Name": "TopicName", "RequiresRecreation": "Always"}}
     r = check_change_sets([cs(rc("A", [d], replacement="True"))])
-    assert r.verdict == FAIL
-    assert any("Replacement" in e for e in r.errors)
+    assert r.verdict == FAIL and any("Replacement" in e for e in r.errors)
 
 
 def test_add_remove_import_dynamic_actions_fail() -> None:
     for action in ("Add", "Remove", "Import", "Dynamic", "SyncWithActual"):
-        r = check_change_sets([cs(rc("A", [policy()], action=action))])
-        assert r.verdict == FAIL, action
+        assert check_change_sets([cs(rc("A", [policy()], action=action))]).verdict == FAIL
 
 
 def test_conditional_replacement_fails() -> None:
-    r = check_change_sets([cs(rc("A", [policy()], replacement="Conditional"))])
-    assert r.verdict == FAIL
+    assert check_change_sets([cs(rc("A", [policy()], replacement="Conditional"))]).verdict == FAIL
 
 
-def test_nested_template_url_allowed_only_for_patched_wrapper() -> None:
-    d = {
-        "Target": {"Attribute": "Properties", "Name": "TemplateURL", "RequiresRecreation": "Never"}
-    }
-    stack = "AWS::CloudFormation::Stack"
-    ok = check_change_sets(
-        [cs(rc("AddonsStack", [d, policy()], rtype=stack))], patched_nested=["AddonsStack"]
+def test_nested_template_url_must_be_the_patched_child() -> None:
+    child = child_cs(rc("Table", [policy()]))
+    nested = {"AddonsStack": URL}
+    assert check_change_sets([cs(nested_change()), child], patched_nested=nested).verdict == PASS
+    assert check_change_sets([cs(nested_change()), child], patched_nested={}).verdict == FAIL
+    evil = cs(nested_change("https://evil.example/x.yml"))
+    assert check_change_sets([evil, child], patched_nested=nested).verdict == FAIL
+    # IDs without URLs cannot verify the new value: fail closed.
+    assert (
+        check_change_sets([cs(nested_change()), child], patched_nested=["AddonsStack"]).verdict
+        == FAIL
     )
-    assert ok.verdict == PASS
-    bad = check_change_sets([cs(rc("AddonsStack", [d], rtype=stack))], patched_nested=[])
-    assert bad.verdict == FAIL
-    other = check_change_sets([cs(rc("Topic", [d]))], patched_nested=["Topic"])
-    assert other.verdict == FAIL
+    # TemplateURL on a non-stack resource is never allowed.
+    d = {
+        "Target": {
+            "Attribute": "Properties",
+            "Name": "TemplateURL",
+            "RequiresRecreation": "Never",
+            "AfterValue": URL,
+        }
+    }
+    assert check_change_sets([cs(rc("Topic", [d]))], patched_nested={"Topic": URL}).verdict == FAIL
+
+
+def test_missing_nested_change_set_fails() -> None:
+    r = check_change_sets([cs(nested_change())], patched_nested={"AddonsStack": URL})
+    assert r.verdict == FAIL and any("not supplied" in e for e in r.errors)
+
+
+def test_unreferenced_or_extra_root_fails() -> None:
+    stray = cs(rc("X", [policy()]), name="other", cid="other", parent="root")
+    assert check_change_sets([cs(rc("A", [policy()])), stray]).verdict == FAIL
+    assert (
+        check_change_sets([cs(rc("A", [policy()])), cs(rc("B", [policy()]), cid="root2")]).verdict
+        == FAIL
+    )
+
+
+def test_in_progress_or_unexecutable_fails() -> None:
+    assert (
+        check_change_sets(
+            [{"StackName": "s", "Status": "CREATE_IN_PROGRESS", "ChangeSetId": "root"}]
+        ).verdict
+        == FAIL
+    )
+    doc = cs(rc("A", [policy()]))
+    doc["ExecutionStatus"] = "UNAVAILABLE"
+    assert check_change_sets([doc]).verdict == FAIL
 
 
 def test_metadata_only_with_flag_and_values() -> None:
@@ -106,12 +160,11 @@ def test_dynamic_from_nested_needs_flag() -> None:
         "ChangeSource": "ResourceAttribute",
         "CausingEntity": "AddonsStack.Outputs.TableName",
     }
-    change = rc("TaskDefinition", [d], replacement="False")
-    assert check_change_sets([cs(change)], patched_nested=["AddonsStack"]).verdict == FAIL
+    change = rc("TaskDefinition", [d])
+    nested = {"AddonsStack": URL}
+    assert check_change_sets([cs(change)], patched_nested=nested).verdict == FAIL
     assert (
-        check_change_sets(
-            [cs(change)], patched_nested=["AddonsStack"], allow_nested_dynamic=True
-        ).verdict
+        check_change_sets([cs(change)], patched_nested=nested, allow_nested_dynamic=True).verdict
         == PASS
     )
 
@@ -121,6 +174,7 @@ def test_empty_change_set_is_not_a_pass() -> None:
         "StackName": "s",
         "Status": "FAILED",
         "Changes": [],
+        "ChangeSetId": "root",
         "StatusReason": "The submitted information didn't contain changes.",
     }
     assert check_change_sets([empty]).verdict == EMPTY
@@ -130,15 +184,16 @@ def test_failed_change_set_for_other_reason_fails() -> None:
     bad = {
         "StackName": "s",
         "Status": "FAILED",
-        "Changes": [policy()],
+        "Changes": [],
+        "ChangeSetId": "root",
         "StatusReason": "Template format error",
     }
     assert check_change_sets([bad]).verdict == FAIL
 
 
 def test_nested_change_sets_checked_too() -> None:
-    root = cs(rc("A", [policy()]))
-    child = cs(
-        rc("Table", [{"Target": {"Attribute": "Properties", "Name": "BillingMode"}}]), name="child"
+    child = child_cs(rc("Table", [{"Target": {"Attribute": "Properties", "Name": "BillingMode"}}]))
+    assert (
+        check_change_sets([cs(nested_change()), child], patched_nested={"AddonsStack": URL}).verdict
+        == FAIL
     )
-    assert check_change_sets([root, child]).verdict == FAIL

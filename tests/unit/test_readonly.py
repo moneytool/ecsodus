@@ -78,3 +78,19 @@ def test_sources_only_call_read_operations() -> None:
                 }:
                     pytest.fail(f"{path.name}: calls {name}")
                 assert not name.startswith(("delete_", "update_")) or name in reads
+
+
+def test_paginator_decryption_refused() -> None:
+    pg = client("ssm").get_paginator("get_parameters_by_path")
+    with pytest.raises(ReadOnlyViolation):
+        pg.paginate(Path="/", WithDecryption=True)
+
+
+def test_secret_value_paginator_refused() -> None:
+    with pytest.raises(ReadOnlyViolation):
+        client("secretsmanager").get_paginator("batch_get_secret_value")
+
+
+def test_parameter_history_decryption_refused() -> None:
+    with pytest.raises(ReadOnlyViolation):
+        client("ssm").get_parameter_history(Name="/x", WithDecryption=True)

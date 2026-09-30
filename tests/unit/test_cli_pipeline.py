@@ -89,16 +89,17 @@ def test_runbook_gates_teardown(generated: Path, tmp_path: Path) -> None:
 
 def test_check_commands(generated: Path, tmp_path: Path, capsys) -> None:
     manifest = generated / "ecsodus-manifest.json"
-    imports = [i["address"] for i in json.loads(manifest.read_text())["imports"]]
+    records = json.loads(manifest.read_text())["imports"]
+    imports = [i["address"] for i in records]
     plan = {
         "format_version": "1.2",
         "resource_changes": [
             {
-                "address": a,
+                "address": i["address"],
                 "mode": "managed",
-                "change": {"actions": ["no-op"], "importing": {"id": "x"}},
+                "change": {"actions": ["no-op"], "importing": {"id": i["id"]}},
             }
-            for a in imports
+            for i in records
         ],
     }
     p = tmp_path / "plan.json"

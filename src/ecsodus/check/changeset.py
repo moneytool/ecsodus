@@ -23,7 +23,7 @@ An empty change set is not a pass: it means either the stack is already retained
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -53,9 +53,9 @@ def _is_empty(cs: dict[str, Any]) -> bool:
     if cs.get("Changes"):
         return False
     reason = cs.get("StatusReason") or ""
-    return cs.get("Status") in ("FAILED", "CREATE_COMPLETE") and (
-        not reason or any(r in reason for r in NO_CHANGES_REASONS)
-    )
+    if cs.get("Status") == "FAILED":
+        return any(r in reason for r in NO_CHANGES_REASONS)
+    return cs.get("Status") == "CREATE_COMPLETE"
 
 
 def _metadata_only_ecsodus(detail: dict[str, Any]) -> bool:
@@ -79,37 +79,71 @@ def _metadata_only_ecsodus(detail: dict[str, Any]) -> bool:
 
 def check_change_sets(
     change_sets: Iterable[dict[str, Any]],
-    patched_nested: Iterable[str] = (),
+    patched_nested: Iterable[str] | Mapping[str, str] = (),
     allow_metadata_key: bool = False,
     allow_nested_dynamic: bool = False,
 ) -> ChangeSetResult:
-    """Apply the acceptance rule to a root change set and its nested change sets.
+    """Apply the acceptance rule to a root change set and all of its nested change sets.
 
-    ``patched_nested`` lists the logical IDs of nested-stack wrappers whose ``TemplateURL`` the
-    retain patch rewrote (from the generate manifest).
+    ``patched_nested`` maps each patched nested-stack wrapper's logical ID to the S3 URL of its
+    patched child template (from the manifest); a plain list of IDs is accepted but then the
+    ``TemplateURL`` value cannot be verified and the rule fails closed.
+
+    Requirements beyond the per-change rule:
+
+    * every change set is ``CREATE_COMPLETE`` and executable (``ExecutionStatus: AVAILABLE``);
+      anything still in progress fails;
+    * every nested change set referenced by a stack-resource change is supplied, and every
+      supplied change set is the root or referenced by one;
+    * a ``TemplateURL`` change's new value (``describe-change-set --include-property-values``)
+      equals the manifest URL of the patched child.
     """
     sets = list(change_sets)
-    nested_ok = set(patched_nested)
+    nested_urls: dict[str, str | None] = (
+        dict(patched_nested)
+        if isinstance(patched_nested, Mapping)
+        else dict.fromkeys(patched_nested)
+    )
     result = ChangeSetResult(verdict=PASS, change_sets=len(sets))
     if not sets:
         return ChangeSetResult(verdict=FAIL, errors=["no change sets given"])
-    if all(_is_empty(cs) for cs in sets):
-        return ChangeSetResult(verdict=EMPTY, change_sets=len(sets))
+    if len(sets) == 1 and _is_empty(sets[0]):
+        return ChangeSetResult(verdict=EMPTY, change_sets=1)
+
+    ids = {cs.get("ChangeSetId") for cs in sets if cs.get("ChangeSetId")}
+    roots = [cs for cs in sets if not cs.get("ParentChangeSetId")]
+    if len(roots) != 1:
+        result.errors.append(f"expected exactly one root change set, got {len(roots)}")
+    referenced: set[str] = set()
+    for cs in sets:
+        for change in cs.get("Changes") or []:
+            child = (change.get("ResourceChange") or {}).get("ChangeSetId")
+            if child:
+                referenced.add(child)
+    for child in sorted(referenced - ids):
+        result.errors.append(f"nested change set {child} was not supplied (describe it too)")
+    for cs in sets:
+        cid = cs.get("ChangeSetId")
+        if cs.get("ParentChangeSetId") and cid not in referenced:
+            result.errors.append(f"change set {cid} is not referenced by the root")
 
     for cs in sets:
         name = cs.get("StackName") or cs.get("ChangeSetName") or "?"
-        if cs.get("Status") == "FAILED" and not _is_empty(cs):
-            result.errors.append(f"{name}: change set FAILED: {cs.get('StatusReason')}")
+        status, execution = cs.get("Status"), cs.get("ExecutionStatus", "AVAILABLE")
+        if status != "CREATE_COMPLETE" or execution != "AVAILABLE":
+            result.errors.append(
+                f"{name}: change set is {status}/{execution}, not CREATE_COMPLETE/AVAILABLE"
+                + (f" ({cs.get('StatusReason')})" if cs.get("StatusReason") else "")
+            )
             continue
         for change in cs.get("Changes") or []:
             if change.get("Type") not in (None, "Resource"):
                 result.errors.append(f"{name}: unexpected change type {change.get('Type')}")
                 continue
             rc = change.get("ResourceChange") or {}
-            lid = rc.get("LogicalResourceId", "?")
-            where = f"{name}/{lid}"
+            where = f"{name}/{rc.get('LogicalResourceId', '?')}"
             problems = _check_resource_change(
-                rc, nested_ok, allow_metadata_key, allow_nested_dynamic
+                rc, nested_urls, allow_metadata_key, allow_nested_dynamic
             )
             if problems:
                 result.errors.extend(f"{where}: {p}" for p in problems)
@@ -117,12 +151,14 @@ def check_change_sets(
                 result.accepted += 1
     if result.errors:
         result.verdict = FAIL
+    elif result.accepted == 0:
+        result.verdict = EMPTY
     return result
 
 
 def _check_resource_change(
     rc: dict[str, Any],
-    nested_ok: set[str],
+    nested_ok: Mapping[str, str | None],
     allow_metadata_key: bool,
     allow_nested_dynamic: bool,
 ) -> list[str]:
@@ -169,6 +205,15 @@ def _check_resource_change(
                 problems.append(
                     f"TemplateURL change has RequiresRecreation={target.get('RequiresRecreation')}"
                 )
+            expected = nested_ok.get(lid)
+            after = target.get("AfterValue")
+            if expected is None or after is None:
+                problems.append(
+                    "TemplateURL new value cannot be verified: describe the change set with "
+                    "--include-property-values and pass the manifest"
+                )
+            elif after.strip('"') != expected:
+                problems.append(f"TemplateURL points at {after!r}, not the patched child")
             continue
         if attr == "Metadata" and allow_metadata_key and _metadata_only_ecsodus(d):
             continue
