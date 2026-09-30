@@ -193,6 +193,10 @@ def cmd_check(a: argparse.Namespace) -> int:
         if not a.plan or not a.phase:
             return _err("give a plan JSON and --phase, or --state, or --changeset")
         doc = json.loads(Path(a.plan).read_text())
+        task_defs = {i["address"] for i in m["imports"] if i["type"] == "AWS::ECS::TaskDefinition"}
+        for f in a.forgotten or ():
+            if f not in task_defs:
+                return _err(f"--forgotten {f} is not an imported task definition in the manifest")
         res = plan_check.check_plan(doc, expected, a.phase, a.forgotten or ())
     for e in res.errors:
         print(f"FAIL {e}")
@@ -312,9 +316,8 @@ def cmd_verify_fresh(a: argparse.Namespace) -> int:
             failed = True
             print(f"FAIL {name}: {exc}")
             continue
-        if not str(d.get("StackStatus", "")).endswith("_COMPLETE") or "ROLLBACK" in str(
-            d.get("StackStatus", "")
-        ):
+        status = str(d.get("StackStatus", ""))
+        if not status.endswith("_COMPLETE") or "ROLLBACK" in status or status.startswith("DELETE"):
             failed = True
             print(f"FAIL {name}: status {d.get('StackStatus')} (must be settled *_COMPLETE)")
             continue

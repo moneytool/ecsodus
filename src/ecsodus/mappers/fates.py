@@ -457,6 +457,10 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
     names = {r.tf_address for r in plan.resources if r.tf_address}
     for obj in inv.out_of_band:
         stack_name = obj.created_by.split("/", 1)[0]
+        if stack_name not in plan.stacks:
+            plan.closure_errors.append(
+                f"out-of-band {obj.kind} {obj.id} has no known creating stack ({obj.created_by})"
+            )
         handoff = plan.stacks.get(stack_name) is not None and plan.stacks[stack_name].handoff
         rp = tf_oob.plan_certificate(obj, stack_name, handoff, names)
         plan.resources.append(rp)
@@ -486,7 +490,11 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
             zone = str(props.get("HostedZoneId") or props.get("HostedZoneName") or "")
             zone = zone.rsplit("/", 1)[-1].rstrip(".").lower()
             owned_records.add(
-                (zone, str(props.get("Name", "")).rstrip(".").lower(), str(props.get("Type", "")))
+                (
+                    zone,
+                    str(props.get("Name", "")).rstrip(".").lower(),
+                    str(props.get("Type", "")) + "|" + str(props.get("SetIdentifier", "")),
+                )
             )
     for rp in list(plan.imports()):
         if rp.type != "AWS::Route53::HostedZone" or rp.physical_id is None:

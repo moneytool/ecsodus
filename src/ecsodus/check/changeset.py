@@ -129,17 +129,28 @@ def check_change_sets(
         parent = cs.get("ParentChangeSetId")
         if parent and cid not in referenced:
             result.errors.append(f"change set {cid} is not referenced by the root")
-        if parent and parent not in by_id:
+        if parent and (parent not in by_id or parent == cid):
             result.errors.append(f"change set {cid} has parent {parent}, which was not supplied")
         if cs.get("RootChangeSetId") and root_id and cs["RootChangeSetId"] != root_id:
             result.errors.append(f"change set {cid} belongs to another root")
-    # Wrapper logical IDs whose child change set was actually supplied (for Dynamic entries).
+    # Wrapper logical IDs whose child change set was actually supplied (for Dynamic entries),
+    # and each child's claimed parent and stack must match the change that references it.
     supplied_children: set[str] = set()
     for cs in sets:
         for change in cs.get("Changes") or []:
             rcx = change.get("ResourceChange") or {}
-            if rcx.get("ChangeSetId") in ids:
-                supplied_children.add(rcx.get("LogicalResourceId", ""))
+            child_id = rcx.get("ChangeSetId")
+            if child_id not in ids:
+                continue
+            supplied_children.add(rcx.get("LogicalResourceId", ""))
+            child = by_id[child_id]
+            if child.get("ParentChangeSetId") != cs.get("ChangeSetId"):
+                result.errors.append(f"change set {child_id} does not name its referencing parent")
+            phys = rcx.get("PhysicalResourceId")
+            if phys and child.get("StackId") and child["StackId"] != phys:
+                result.errors.append(
+                    f"change set {child_id} is for stack {child['StackId']}, not {phys}"
+                )
 
     for cs in sets:
         name = cs.get("StackName") or cs.get("ChangeSetName") or "?"

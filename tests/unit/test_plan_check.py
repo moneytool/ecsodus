@@ -105,3 +105,30 @@ def test_non_aws_provider_rejected() -> None:
     rc = change("aws_s3_bucket.a", ["no-op"], True)
     rc["provider_name"] = "registry.terraform.io/evil/aws"
     assert not check_plan(plan(rc), ["aws_s3_bucket.a"], IMPORT).ok
+
+
+def test_steady_identity_must_match_manifest() -> None:
+    def rc(before):
+        r = change("aws_s3_bucket.a", ["no-op"])
+        r["change"]["before"] = before
+        return r
+
+    assert check_plan(plan(rc({"id": "bucket-a"})), {"aws_s3_bucket.a": "bucket-a"}, STEADY).ok
+    assert not check_plan(plan(rc({"id": "bucket-b"})), {"aws_s3_bucket.a": "bucket-a"}, STEADY).ok
+    assert not check_plan(plan(rc(None)), {"aws_s3_bucket.a": "bucket-a"}, STEADY).ok
+    svc = {
+        "id": "arn:aws:ecs:us-west-2:1:service/my-cluster/my-svc",
+        "cluster": "arn:...:cluster/my-cluster",
+    }
+    r = change("aws_ecs_service.s", ["no-op"])
+    r["change"]["before"] = svc
+    assert check_plan(plan(r), {"aws_ecs_service.s": "my-cluster/my-svc"}, STEADY).ok
+
+
+def test_exact_provider_and_matching_type() -> None:
+    r = change("aws_s3_bucket.a", ["no-op"], True)
+    r["provider_name"] = "evil.example/hashicorp/aws"
+    assert not check_plan(plan(r), ["aws_s3_bucket.a"], IMPORT).ok
+    r2 = change("aws_s3_bucket.a", ["no-op"], True)
+    r2["type"] = "aws_iam_role"
+    assert not check_plan(plan(r2), ["aws_s3_bucket.a"], IMPORT).ok

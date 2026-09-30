@@ -88,7 +88,8 @@ def plan_zone_records(
         name, rtype = _record_name(rr.get("Name", "")), rr.get("Type", "")
         if name == zone_name and rtype in ("SOA", "NS"):
             continue  # managed by the zone itself
-        if (zone_id.lower(), name, rtype) in owned or (zone_name, name, rtype) in owned:
+        key_type = f"{rtype}|{rr.get('SetIdentifier', '')}"
+        if (zone_id.lower(), name, key_type) in owned or (zone_name, name, key_type) in owned:
             continue  # a CloudFormation RecordSet in this zone owns it (mapped with its stack)
         lid = f"out-of-band:{name}/{rtype}"
         rtype_label = "OutOfBand::Route53::Record"

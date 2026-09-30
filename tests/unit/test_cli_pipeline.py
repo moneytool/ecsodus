@@ -216,3 +216,23 @@ def test_runbook_blocks_stop_at_a_failing_check(generated: Path, tmp_path: Path)
     assert res.returncode != 0
     assert "ecsodus check --changeset" in calls
     assert "execute-change-set" not in calls
+
+
+@pytest.mark.parametrize("total,bad,ok", [("1", "0", True), ("0", "0", False), ("2", "1", False)])
+def test_stackset_wait_requires_results(tmp_path: Path, total: str, bad: str, ok: bool) -> None:
+    from ecsodus.emit.runbook import _wait_stackset_op
+
+    stub = tmp_path / "aws"
+    stub.write_text(
+        '#!/bin/sh\ncase "$*" in\n'
+        "  *describe-stack-set-operation*) echo SUCCEEDED;;\n"
+        f'  *"length(Summaries)"*) echo {total};;\n'
+        f"  *) echo {bad};;\nesac\n"
+    )
+    stub.chmod(0o755)
+    script = (
+        "set -euo pipefail\nop=abc\n" + "\n".join(_wait_stackset_op("ss")) + "\necho CONTINUED\n"
+    )
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}")
+    res = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+    assert ("CONTINUED" in res.stdout) is ok

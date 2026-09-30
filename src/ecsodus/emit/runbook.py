@@ -82,7 +82,8 @@ def _wait_stackset_op(ss_name: str) -> list[str]:
         "bad=$(aws cloudformation list-stack-set-operation-results "
         f'--stack-set-name {q(ss_name)} --operation-id "$op" '
         "--query \"length(Summaries[?Status!='SUCCEEDED'])\" --output text)",
-        'test "$total" -ge 1 && test "$bad" -eq 0',
+        'test "$total" -ge 1',
+        'test "$bad" -eq 0',
     ]
 
 

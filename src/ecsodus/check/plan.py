@@ -18,12 +18,31 @@ secret material into state (e.g. ``aws_secretsmanager_secret_version``).
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 IMPORT = "import"
 STEADY = "steady"
+AWS_PROVIDER = "registry.terraform.io/hashicorp/aws"
+
+
+def _identity_matches(import_id: str, before: Any) -> bool:
+    """Does the refreshed object carry the physical ID it was imported from?
+
+    Import IDs are either a plain ID/ARN/name or a composite of several (``cluster/service``,
+    ``ZONE_name_TYPE``); every component must appear among the object's attribute values.
+    Without ``before`` (not in state) there is nothing to prove, which is a failure.
+    """
+    if not isinstance(before, dict):
+        return False
+    text = json.dumps(before, sort_keys=True).lower()
+    if import_id.lower() in text:
+        return True
+    parts = [p for p in re.split(r"[/_:|,]", import_id.lower()) if len(p) > 2]
+    return bool(parts) and all(p in text for p in parts)
 
 
 @dataclass
@@ -84,9 +103,12 @@ def check_plan(
         if actions == ["forget"] and phase == STEADY and address in forgotten_set:
             forget_seen.add(address)
             continue
-        provider = rc.get("provider_name", "registry.terraform.io/hashicorp/aws")
-        if not provider.endswith("hashicorp/aws"):
-            res.errors.append(f"{address}: provider {provider} is not hashicorp/aws")
+        provider = rc.get("provider_name", AWS_PROVIDER)
+        if provider != AWS_PROVIDER:
+            res.errors.append(f"{address}: provider {provider} is not {AWS_PROVIDER}")
+            continue
+        if rc.get("type") and rc["type"] != address.split(".", 1)[0].split("[", 1)[0]:
+            res.errors.append(f"{address}: resource type {rc['type']} does not match the address")
             continue
         if actions != ["no-op"]:
             verb = "/".join(actions) or "?"
@@ -103,6 +125,12 @@ def check_plan(
             if address in expected and want is not None and got != want:
                 res.errors.append(f"{address}: imports {got!r}, but the manifest expects {want!r}")
         else:
+            want = expected.get(address)
+            if phase == STEADY and want and not _identity_matches(want, change.get("before")):
+                res.errors.append(
+                    f"{address}: the resource in state does not carry the manifest's ID {want!r}"
+                )
+                continue
             noop_seen.add(address)
     if phase == IMPORT:
         for address in sorted(set(expected) - importing_seen):

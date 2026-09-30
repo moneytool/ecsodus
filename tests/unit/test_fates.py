@@ -246,8 +246,8 @@ def test_dns_ownership_is_per_zone() -> None:
             }
         ],
     }
-    other_zone_owner = {("z222", "api.example.com", "A")}
+    other_zone_owner = {("z222", "api.example.com", "A|")}
     out = tf_oob.plan_zone_records(zone, live, other_zone_owner, set())
     assert [r.fate for r in out] == [IMPORT]
-    same_zone_owner = {("z111", "api.example.com", "A")}
+    same_zone_owner = {("z111", "api.example.com", "A|")}
     assert tf_oob.plan_zone_records(zone, live, same_zone_owner, set()) == []

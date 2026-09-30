@@ -36,7 +36,34 @@ its fix.
 | HCL map keys are not escaped (opus 18) | Keys are escaped |
 | Kept stacks are patched (opus 16) | Only handed-off stacks are patched |
 
+## Verification rounds
+
+- [astra-verify.md](astra-verify.md): 4 new P1 findings plus partial fixes. All were fixed in
+  `fix: verification-review findings`.
+- [astra-verify-2.md](astra-verify-2.md): 1 new P1 (the StackSet coverage test sat on the left of
+  `&&`). Fixed, together with these partials:
+  - the exact provider string
+  - the resource type must match the address
+  - steady-phase identity against the manifest ID
+  - the nested change-set parent and `StackId` binding
+  - an unknown certificate owner as a closure error
+  - `SetIdentifier` in DNS ownership
+  - deleted stacks fail `verify-fresh`
+  - `--forgotten` limited to the manifest's task definitions
+
 Open and accepted for v0.1, fail-closed:
+
+- **The patched template's bytes in S3 are not re-hashed before `execute-change-set`.** They are
+  uploaded in the same block, and after the update `verify-retain --manifest` compares the
+  deployed template's SHA-256 with the manifest, failing on any mismatch.
+- **The generated `*.tf` files are deliberately not gitignored,** because they are the
+  deliverable. They contain plaintext task-definition environment values, which the runbook and
+  the generated `.gitignore` header warn about. Secrets remain `valueFrom` references.
+- **The offline `check --phase import` does not itself prove that the live verification ran.**
+  The runbook runs `verify-fresh` in the same fail-fast block, immediately before the plan.
+- **The zone-name fallback in DNS ownership can conflate two private and public zones with the
+  same name** when a RecordSet names its zone by name. Rare in Copilot, which uses zone IDs.
+
 
 - JSON templates are re-serialised rather than edited as text (opus 16). The semantic check
   still applies.
