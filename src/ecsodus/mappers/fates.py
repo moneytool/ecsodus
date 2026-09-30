@@ -376,36 +376,50 @@ def _side_effects(stack: Stack, template: dict[str, Any], resolver: Resolver) ->
 
 
 def _express_fit(inv: Inventory, stack: Stack, template: dict[str, Any]) -> ExpressFit:
-    """The Express Mode predicate (PLAN §2.3); informational in v0.1."""
+    """The Express Mode predicate (PLAN §2.3); informational in v0.1.
+
+    Properties are resolved (Copilot uses Fn::If with AWS::NoValue for optional features), so
+    a feature counts only if it is actually on in this deployment.
+    """
     reasons: list[str] = []
+    resolver = Resolver(inv, stack, template)
     res = template.get("Resources") or {}
-    tds = [b for b in res.values() if b.get("Type") == "AWS::ECS::TaskDefinition"]
+
+    def live_props(rtype: str) -> list[dict[str, Any]]:
+        out = []
+        for lid, body in res.items():
+            if body.get("Type") != rtype:
+                continue
+            try:
+                if resolver.resource_exists(lid):
+                    out.append(resolver.resolve(body.get("Properties") or {}) or {})
+            except Unresolvable:
+                out.append({"__unresolved__": True})
+        return out
+
     if stack.workload_type != "Load Balanced Web Service":
         reasons.append("not a Load Balanced Web Service")
-    if tds:
-        props = tds[0].get("Properties") or {}
+    for props in live_props("AWS::ECS::TaskDefinition"):
+        if props.get("__unresolved__"):
+            reasons.append("task definition not resolvable offline")
+            continue
         if len(props.get("ContainerDefinitions") or []) != 1:
             reasons.append("more than one container (sidecars)")
         if props.get("Volumes"):
             reasons.append("uses volumes")
         try:
-            cpu = int(str(Resolver(inv, stack, template).resolve(props.get("Cpu", "0"))))
-            mem = int(str(Resolver(inv, stack, template).resolve(props.get("Memory", "0"))))
+            cpu, mem = int(str(props.get("Cpu", "0"))), int(str(props.get("Memory", "0")))
             if not 256 <= cpu <= 4096 or not 512 <= mem <= 8192:
                 reasons.append(f"cpu {cpu}/memory {mem} outside 256-4096/512-8192")
-        except (Unresolvable, ValueError):
-            reasons.append("cpu/memory not resolvable")
-    types = {b.get("Type") for b in res.values()}
-    if (
-        any(
-            b.get("Type") == "AWS::ElasticLoadBalancingV2::LoadBalancer"
-            and (b.get("Properties") or {}).get("Type") == "network"
-            for b in res.values()
-        )
-        or "AWS::ElasticLoadBalancingV2::LoadBalancer" in types
-        and "NLB" in stack.template_body
-    ):
-        reasons.append("uses a Network Load Balancer")
-    if "ServiceConnectConfiguration" in stack.template_body:
-        reasons.append("uses Service Connect")
-    return ExpressFit(eligible=not reasons, reasons=reasons)
+        except ValueError:
+            reasons.append("cpu/memory not numeric")
+    for props in live_props("AWS::ECS::Service"):
+        sc = props.get("ServiceConnectConfiguration") or {}
+        if props.get("__unresolved__"):
+            reasons.append("service not resolvable offline")
+        elif sc.get("Enabled") in (True, "true"):
+            reasons.append("uses Service Connect")
+    for props in live_props("AWS::ElasticLoadBalancingV2::LoadBalancer"):
+        if props.get("Type") == "network":
+            reasons.append("uses a Network Load Balancer")
+    return ExpressFit(eligible=not reasons, reasons=sorted(set(reasons)))

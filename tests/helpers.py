@@ -60,6 +60,13 @@ def fake_physical_id(stack: str, lid: str, rtype: str) -> str:
         "AWS::ServiceDiscovery::Service": "srv-abcdefghijklmnop",
         "AWS::EFS::FileSystem": "fs-0123456789abcdef0",
         "AWS::Lambda::Function": f"{stack}-{lid}-XYZ",
+        "AWS::ApplicationAutoScaling::ScalableTarget": (
+            f"service/{stack}-Cluster/{stack}-Service|ecs:service:DesiredCount|ecs"
+        ),
+        "AWS::ApplicationAutoScaling::ScalingPolicy": (
+            f"arn:aws:autoscaling:{REGION}:{ACCOUNT}:scalingPolicy:uuid:resource/ecs/"
+            f"service/{stack}-Cluster/{stack}-Service:policyName/{lid}"
+        ),
         "AWS::CloudFormation::Stack": arn.format(
             svc="cloudformation", res=f"stack/{stack}-{lid}-XYZ/uuid"
         ),
