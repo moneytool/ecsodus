@@ -40,25 +40,46 @@ Resources:
 @pytest.fixture
 def aws():
     with mock_aws():
-        session = boto3.Session(region_name=REGION, aws_access_key_id="testing",
-                                aws_secret_access_key="testing")
+        session = boto3.Session(
+            region_name=REGION, aws_access_key_id="testing", aws_secret_access_key="testing"
+        )
         cfn = session.client("cloudformation")
         tags = [{"Key": "copilot-application", "Value": "shop"}]
-        cfn.create_stack(StackName="shop-test", TemplateBody=ENV,
-                         Tags=tags + [{"Key": "copilot-environment", "Value": "test"}])
-        cfn.create_stack(StackName="shop-test-web", TemplateBody=SVC,
-                         Tags=tags + [{"Key": "copilot-environment", "Value": "test"},
-                                      {"Key": "copilot-service", "Value": "web"}])
+        cfn.create_stack(
+            StackName="shop-test",
+            TemplateBody=ENV,
+            Tags=tags + [{"Key": "copilot-environment", "Value": "test"}],
+        )
+        cfn.create_stack(
+            StackName="shop-test-web",
+            TemplateBody=SVC,
+            Tags=tags
+            + [
+                {"Key": "copilot-environment", "Value": "test"},
+                {"Key": "copilot-service", "Value": "web"},
+            ],
+        )
         cfn.create_stack(StackName="unrelated", TemplateBody=SVC.replace("shop", "other"))
         ssm = session.client("ssm")
-        ssm.put_parameter(Name="/copilot/applications/shop", Type="String",
-                          Value=json.dumps({"name": "shop"}))
-        ssm.put_parameter(Name="/copilot/applications/shop/components/web", Type="String",
-                          Value=json.dumps({"name": "web", "type": "Load Balanced Web Service"}))
-        ssm.put_parameter(Name="/copilot/applications/shop/environments/test", Type="String",
-                          Value=json.dumps({"name": "test"}))
-        ssm.put_parameter(Name="/copilot/shop/test/secrets/DB_PASSWORD", Type="SecureString",
-                          Value="hunter2", Tags=[{"Key": "copilot-application", "Value": "shop"}])
+        ssm.put_parameter(
+            Name="/copilot/applications/shop", Type="String", Value=json.dumps({"name": "shop"})
+        )
+        ssm.put_parameter(
+            Name="/copilot/applications/shop/components/web",
+            Type="String",
+            Value=json.dumps({"name": "web", "type": "Load Balanced Web Service"}),
+        )
+        ssm.put_parameter(
+            Name="/copilot/applications/shop/environments/test",
+            Type="String",
+            Value=json.dumps({"name": "test"}),
+        )
+        ssm.put_parameter(
+            Name="/copilot/shop/test/secrets/DB_PASSWORD",
+            Type="SecureString",
+            Value="hunter2",
+            Tags=[{"Key": "copilot-application", "Value": "shop"}],
+        )
         yield session
 
 
@@ -79,7 +100,8 @@ def test_inventory_discovers_copilot_stacks(aws) -> None:
 def test_secure_string_names_only(aws) -> None:
     inv = copilot.inventory(Clients(aws), "shop")
     assert {"name": "/copilot/shop/test/secrets/DB_PASSWORD", "type": "SecureString"} in (
-        inv.ssm_parameters)
+        inv.ssm_parameters
+    )
     assert "hunter2" not in inv.to_json()
 
 

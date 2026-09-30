@@ -28,8 +28,16 @@ def generated(tmp_path: Path) -> Path:
 
 def test_generate_outputs(generated: Path) -> None:
     names = {p.name for p in generated.iterdir()}
-    assert {"versions.tf", "provider.tf", "backend.hcl.example", "ecsodus-manifest.json",
-            "REPORT.md", "RUNBOOK.md", "retain-patches", ".gitignore"} <= names
+    assert {
+        "versions.tf",
+        "provider.tf",
+        "backend.hcl.example",
+        "ecsodus-manifest.json",
+        "REPORT.md",
+        "RUNBOOK.md",
+        "retain-patches",
+        ".gitignore",
+    } <= names
     assert "demo-test-api.tf" in names and "demo-test.tf" in names
     # Secret-bearing files are 0600.
     mode = stat.S_IMODE(os.stat(generated / "demo-test-api.tf").st_mode)
@@ -38,7 +46,8 @@ def test_generate_outputs(generated: Path) -> None:
     addresses = {i["address"] for i in manifest["imports"]}
     assert "aws_cloudwatch_log_group.api_log_group" in addresses
     assert manifest["retain_patches"]["demo-test-api"]["nested"]["AddonsStack"]["stack"] == (
-        "demo-test-api-AddonsStack-1")
+        "demo-test-api-AddonsStack-1"
+    )
     tf = (generated / "demo-test-api.tf").read_text()
     assert "import {" in tf and "to = aws_cloudwatch_log_group.api_log_group" in tf
 
@@ -59,8 +68,20 @@ def test_runbook_gates_teardown(generated: Path, tmp_path: Path) -> None:
     assert "## 6. Verify" in rb and "## 7. Never" in rb
     inv_path = tmp_path / "inventory.json"
     out2 = tmp_path / "infra2"
-    assert main(["generate", str(inv_path), "--out", str(out2), "--patch-bucket", "b",
-                 "--i-understand-teardown-is-unverified"]) == 0
+    assert (
+        main(
+            [
+                "generate",
+                str(inv_path),
+                "--out",
+                str(out2),
+                "--patch-bucket",
+                "b",
+                "--i-understand-teardown-is-unverified",
+            ]
+        )
+        == 0
+    )
     rb2 = (out2 / "RUNBOOK.md").read_text()
     assert "aws cloudformation delete-stack --stack-name demo-test-api" in rb2
     assert rb2.index("demo-test-api\n") < rb2.index("delete-stack --stack-name demo-test\n")
@@ -69,9 +90,17 @@ def test_runbook_gates_teardown(generated: Path, tmp_path: Path) -> None:
 def test_check_commands(generated: Path, tmp_path: Path, capsys) -> None:
     manifest = generated / "ecsodus-manifest.json"
     imports = [i["address"] for i in json.loads(manifest.read_text())["imports"]]
-    plan = {"format_version": "1.2", "resource_changes": [
-        {"address": a, "mode": "managed", "change": {"actions": ["no-op"], "importing": {"id": "x"}}}
-        for a in imports]}
+    plan = {
+        "format_version": "1.2",
+        "resource_changes": [
+            {
+                "address": a,
+                "mode": "managed",
+                "change": {"actions": ["no-op"], "importing": {"id": "x"}},
+            }
+            for a in imports
+        ],
+    }
     p = tmp_path / "plan.json"
     p.write_text(json.dumps(plan))
     assert main(["check", str(p), "--manifest", str(manifest), "--phase", "import"]) == 0
@@ -82,10 +111,30 @@ def test_check_commands(generated: Path, tmp_path: Path, capsys) -> None:
     state.write_text("\n".join(imports))
     assert main(["check", "--state", str(state), "--manifest", str(manifest)]) == 0
     empty = tmp_path / "cs.json"
-    empty.write_text(json.dumps({"StackName": "s", "Status": "FAILED", "Changes": [],
-                                 "StatusReason": "didn't contain changes"}))
-    assert main(["check", "--changeset", str(empty), "--manifest", str(manifest),
-                 "--stack", "demo-test-api"]) == 3
+    empty.write_text(
+        json.dumps(
+            {
+                "StackName": "s",
+                "Status": "FAILED",
+                "Changes": [],
+                "StatusReason": "didn't contain changes",
+            }
+        )
+    )
+    assert (
+        main(
+            [
+                "check",
+                "--changeset",
+                str(empty),
+                "--manifest",
+                str(manifest),
+                "--stack",
+                "demo-test-api",
+            ]
+        )
+        == 3
+    )
 
 
 def test_template_diff(generated: Path, tmp_path: Path) -> None:
@@ -127,8 +176,20 @@ def test_terraform_validate(generated: Path) -> None:
     cache = Path.home() / ".cache" / "ecsodus-tf-plugins"
     cache.mkdir(parents=True, exist_ok=True)
     env["TF_PLUGIN_CACHE_DIR"] = str(cache)
-    subprocess.run(["terraform", "init", "-backend=false", "-input=false", "-no-color"],
-                   cwd=generated, env=env, check=True, capture_output=True, timeout=600)
-    res = subprocess.run(["terraform", "validate", "-no-color"], cwd=generated, env=env,
-                         capture_output=True, text=True, timeout=300)
+    subprocess.run(
+        ["terraform", "init", "-backend=false", "-input=false", "-no-color"],
+        cwd=generated,
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    res = subprocess.run(
+        ["terraform", "validate", "-no-color"],
+        cwd=generated,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
     assert res.returncode == 0, res.stdout + res.stderr

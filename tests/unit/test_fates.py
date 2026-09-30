@@ -18,7 +18,8 @@ def fates(plan, stack):
 def test_full_handoff() -> None:
     plan = build_plan(app())
     assert all(s.handoff for s in plan.stacks.values()), {
-        n: s.kept_because for n, s in plan.stacks.items() if not s.handoff}
+        n: s.kept_because for n, s in plan.stacks.items() if not s.handoff
+    }
     f = fates(plan, "demo-test-api")
     assert f["LogGroup"] == IMPORT
     assert f["EnvControllerAction"] == MANUAL_CLEANUP
@@ -27,8 +28,13 @@ def test_full_handoff() -> None:
     assert fates(plan, "demo-test-api-AddonsStack-1")["DataLogGroup"] == IMPORT
     assert plan.closure_errors == []
     # Teardown: workloads, orphaned addons, env, app. Nothing stops.
-    assert plan.teardown == ["demo-test-api", "demo-test-worker", "demo-test-api-AddonsStack-1",
-                             "demo-test", "demo-infrastructure-roles"]
+    assert plan.teardown == [
+        "demo-test-api",
+        "demo-test-worker",
+        "demo-test-api-AddonsStack-1",
+        "demo-test",
+        "demo-infrastructure-roles",
+    ]
     assert plan.teardown_stops_at is None
 
 
@@ -40,8 +46,7 @@ def test_unsupported_workload_type_keeps_env_and_app() -> None:
     assert plan.stacks["demo-test-api"].handoff
     assert plan.teardown == ["demo-test-api", "demo-test-api-AddonsStack-1"]
     assert plan.teardown_stops_at == "demo-test"
-    assert set(fates(plan, "demo-test").values()) <= {RETAIN_UNDER_EXISTING_OWNER,
-                                                      MANUAL_CLEANUP}
+    assert set(fates(plan, "demo-test").values()) <= {RETAIN_UNDER_EXISTING_OWNER, MANUAL_CLEANUP}
     assert "blocked" in plan.workload_status["test/worker"]
 
 
@@ -94,6 +99,7 @@ def test_closure_catches_reference_to_manual_cleanup() -> None:
     env = inv.stacks["demo-test"]
     env.template_body = env.template_body.replace(
         "      RetentionInDays: 30\n  Cluster:",
-        "      RetentionInDays: 30\n      KmsKeyId: !GetAtt CustomDomainFunction.Arn\n  Cluster:")
+        "      RetentionInDays: 30\n      KmsKeyId: !GetAtt CustomDomainFunction.Arn\n  Cluster:",
+    )
     plan = build_plan(inv)
     assert any("CustomDomainFunction" in e for e in plan.closure_errors)

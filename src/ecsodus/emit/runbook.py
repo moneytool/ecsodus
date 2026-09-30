@@ -41,7 +41,7 @@ def render(
     inv = plan.inventory
     lines: list[str] = []
     w = lines.append
-    handoff = {n for n, s in plan.stacks.items() if s.handoff}
+    handoff = {n for n, sp in plan.stacks.items() if sp.handoff}
     roots = [s for s in inv.stacks.values() if s.name in handoff and s.kind in (APP, ENV, WORKLOAD)]
     order = {APP: 0, ENV: 1, WORKLOAD: 2}
     roots.sort(key=lambda s: (order[s.kind], s.name))
@@ -57,15 +57,15 @@ def render(
         "Run every command from the directory that holds the generated Terraform "
         f"(`{out_dir}`). Stop at the first failing check. Nothing here is run by ecsodus.\n"
     )
-    kept = {n: s for n, s in plan.stacks.items() if not s.handoff}
+    kept = {n: sp for n, sp in plan.stacks.items() if not sp.handoff}
     if kept:
         w("## Stacks that stay on Copilot\n")
         w(
             "These stacks are **kept**. Nothing in this runbook touches them, and step 5 stops "
             "before any shared stack they depend on.\n"
         )
-        for n, s in sorted(kept.items()):
-            w(f"- `{n}`: {'; '.join(s.kept_because)}")
+        for n, sp in sorted(kept.items()):
+            w(f"- `{n}`: {'; '.join(sp.kept_because)}")
         w("")
     if plan.closure_errors:
         w("## STOP: closure check failed\n")

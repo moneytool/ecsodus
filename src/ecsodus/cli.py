@@ -154,25 +154,25 @@ def cmd_check(a: argparse.Namespace) -> int:
         stacks = [a.stack] if a.stack else list(m["retain_patches"])
         for s in stacks:
             nested += list((m["retain_patches"].get(s) or {}).get("nested", {}))
-        res = changeset.check_change_sets(
+        cs_res = changeset.check_change_sets(
             docs,
             patched_nested=nested,
             allow_metadata_key=a.allow_metadata_key,
             allow_nested_dynamic=a.allow_nested_dynamic,
         )
-        for e in res.errors:
+        for e in cs_res.errors:
             print(f"FAIL {e}")
-        if res.verdict == changeset.EMPTY:
+        if cs_res.verdict == changeset.EMPTY:
             print(
                 "EMPTY change set: run `ecsodus verify-retain`; skip the stack if it passes, "
                 "otherwise regenerate with --metadata-fallback (RUNBOOK step 3)"
             )
             return 3
         print(
-            f"change sets: {res.change_sets}, accepted changes: {res.accepted}, "
-            f"verdict: {res.verdict.upper()}"
+            f"change sets: {cs_res.change_sets}, accepted changes: {cs_res.accepted}, "
+            f"verdict: {cs_res.verdict.upper()}"
         )
-        return 0 if res.ok else 1
+        return 0 if cs_res.ok else 1
 
     if a.state:
         res = plan_check.check_state(Path(a.state).read_text().splitlines(), expected)

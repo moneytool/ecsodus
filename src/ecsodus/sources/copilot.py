@@ -142,7 +142,7 @@ def inventory(
 
 
 def _describe_all(cfn: Any, names: list[str]) -> list[dict[str, Any]]:
-    out = []
+    out: list[dict[str, Any]] = []
     for name in names:
         out.extend(cfn.describe_stacks(StackName=name).get("Stacks") or [])
     return out
@@ -184,9 +184,14 @@ def _stack_from(cfn: Any, d: dict[str, Any]) -> Stack:
         exports=exports,
         tags={t["Key"]: t["Value"] for t in d.get("Tags") or []},
         capabilities=list(d.get("Capabilities") or []),
-        last_updated=last.isoformat() if hasattr(last, "isoformat") else str(last or ""),
+        last_updated=_iso(last),
         resources=resources,
     )
+
+
+def _iso(value: Any) -> str:
+    iso = getattr(value, "isoformat", None)
+    return iso() if callable(iso) else str(value or "")
 
 
 def _stackset(clients: Clients, inv: Inventory, app: str) -> None:

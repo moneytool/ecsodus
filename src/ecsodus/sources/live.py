@@ -157,7 +157,7 @@ def _eips(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     ec2 = clients("ec2")
     ips = [i for i in ids if not i.startswith("eipalloc-")]
     allocs = [i for i in ids if i.startswith("eipalloc-")]
-    addrs = []
+    addrs: list[dict[str, Any]] = []
     if ips:
         addrs += ec2.describe_addresses(PublicIps=ips).get("Addresses") or []
     if allocs:

@@ -120,26 +120,40 @@ Resources:
 """
 
 
-def _stack(name: str, kind: str, template: str, params: dict[str, str], resources: list,
-           **kw: object) -> Stack:
+def _stack(
+    name: str, kind: str, template: str, params: dict[str, str], resources: list, **kw: object
+) -> Stack:
     return Stack(
-        name=name, kind=kind,
+        name=name,
+        kind=kind,
         stack_id=f"arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/{name}/uuid-{name}",
-        status="UPDATE_COMPLETE", template_body=template, parameters=params,
+        status="UPDATE_COMPLETE",
+        template_body=template,
+        parameters=params,
         resources=[Resource(*r) for r in resources],
-        last_updated="2026-09-29T00:00:00+00:00", capabilities=["CAPABILITY_IAM"], **kw,
+        last_updated="2026-09-29T00:00:00+00:00",
+        capabilities=["CAPABILITY_IAM"],
+        **kw,
     )
 
 
-def app(worker_type: str = "Backend Service", worker_migrates: bool = True,
-        extra_workload_resource: tuple[str, str] | None = None) -> Inventory:
+def app(
+    worker_type: str = "Backend Service",
+    worker_migrates: bool = True,
+    extra_workload_resource: tuple[str, str] | None = None,
+) -> Inventory:
     env = _stack(
-        "demo-test", "env", ENV_TEMPLATE, {"AppName": "demo", "EnvironmentName": "test"},
-        [("VPC", "AWS::EC2::VPC", "vpc-0123456789abcdef0"),
-         ("EnvLogGroup", "AWS::Logs::LogGroup", "/copilot/demo-test"),
-         ("Cluster", "AWS::ECS::Cluster", "demo-test-Cluster-AbC"),
-         ("CustomDomainFunction", "AWS::Lambda::Function", "demo-test-CustomDomainFunction-X1"),
-         ("CustomDomainAction", "Custom::CustomDomainFunction", "demo-test-cda-1")],
+        "demo-test",
+        "env",
+        ENV_TEMPLATE,
+        {"AppName": "demo", "EnvironmentName": "test"},
+        [
+            ("VPC", "AWS::EC2::VPC", "vpc-0123456789abcdef0"),
+            ("EnvLogGroup", "AWS::Logs::LogGroup", "/copilot/demo-test"),
+            ("Cluster", "AWS::ECS::Cluster", "demo-test-Cluster-AbC"),
+            ("CustomDomainFunction", "AWS::Lambda::Function", "demo-test-CustomDomainFunction-X1"),
+            ("CustomDomainAction", "Custom::CustomDomainFunction", "demo-test-cda-1"),
+        ],
         env="test",
     )
     env.exports = {"demo-test-ClusterId": "demo-test-Cluster-AbC"}
@@ -151,40 +165,79 @@ def app(worker_type: str = "Backend Service", worker_migrates: bool = True,
             ("EnvControllerFunction", "AWS::Lambda::Function", f"{sname}-EnvCtl-Z9"),
             ("EnvControllerAction", "Custom::EnvControllerFunction", f"{sname}-eca"),
         ]
-        params = {"AppName": "demo", "EnvName": "test", "WorkloadName": name,
-                  "AddonsTemplateURL": ""}
+        params = {
+            "AppName": "demo",
+            "EnvName": "test",
+            "WorkloadName": name,
+            "AddonsTemplateURL": "",
+        }
         template = WORKLOAD_TEMPLATE
         if name == "api":
             params["AddonsTemplateURL"] = "https://bucket.s3.amazonaws.com/addons.yml"
-            resources.append(("AddonsStack", "AWS::CloudFormation::Stack",
-                              f"arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/"
-                              f"demo-test-api-AddonsStack-1/uuid-addons"))
+            resources.append(
+                (
+                    "AddonsStack",
+                    "AWS::CloudFormation::Stack",
+                    f"arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/"
+                    f"demo-test-api-AddonsStack-1/uuid-addons",
+                )
+            )
         if name == "worker" and extra_workload_resource:
             lid, rtype = extra_workload_resource
             template = template + f"  {lid}:\n    Type: {rtype}\n    Properties: {{}}\n"
             resources.append((lid, rtype, f"{sname}-{lid}"))
-        stacks[sname] = _stack(sname, "workload", template, params, resources, env="test",
-                               workload=name, workload_type=wtype)
+        stacks[sname] = _stack(
+            sname,
+            "workload",
+            template,
+            params,
+            resources,
+            env="test",
+            workload=name,
+            workload_type=wtype,
+        )
     addons = _stack(
-        "demo-test-api-AddonsStack-1", "addons", ADDONS_TEMPLATE, {"App": "demo"},
+        "demo-test-api-AddonsStack-1",
+        "addons",
+        ADDONS_TEMPLATE,
+        {"App": "demo"},
         [("DataLogGroup", "AWS::Logs::LogGroup", "/copilot/demo-data")],
-        env="test", workload="api", parent="demo-test-api", parent_logical_id="AddonsStack",
+        env="test",
+        workload="api",
+        parent="demo-test-api",
+        parent_logical_id="AddonsStack",
     )
-    addons.stack_id = (f"arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/"
-                       "demo-test-api-AddonsStack-1/uuid-addons")
+    addons.stack_id = (
+        f"arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/demo-test-api-AddonsStack-1/uuid-addons"
+    )
     addons.outputs = {"DataLogGroupName": "/copilot/demo-data"}
     stacks[addons.name] = addons
     stacks["demo-infrastructure-roles"] = _stack(
-        "demo-infrastructure-roles", "app", APP_TEMPLATE, {},
+        "demo-infrastructure-roles",
+        "app",
+        APP_TEMPLATE,
+        {},
         [("AppLogGroup", "AWS::Logs::LogGroup", "/copilot/demo-app")],
     )
     from ecsodus.model import now_iso
 
     return Inventory(
-        app="demo", account=ACCOUNT, region=REGION, captured_at=now_iso(), envs=["test"],
-        workloads=[Workload("api", "Load Balanced Web Service", "test"),
-                   Workload("worker", worker_type, "test", worker_migrates)],
+        app="demo",
+        account=ACCOUNT,
+        region=REGION,
+        captured_at=now_iso(),
+        envs=["test"],
+        workloads=[
+            Workload("api", "Load Balanced Web Service", "test"),
+            Workload("worker", worker_type, "test", worker_migrates),
+        ],
         stacks=stacks,
-        live={"vpc-0123456789abcdef0": {"EnableDnsSupport": True, "EnableDnsHostnames": True,
-                                        "CidrBlock": "10.0.0.0/16", "InstanceTenancy": "default"}},
+        live={
+            "vpc-0123456789abcdef0": {
+                "EnableDnsSupport": True,
+                "EnableDnsHostnames": True,
+                "CidrBlock": "10.0.0.0/16",
+                "InstanceTenancy": "default",
+            }
+        },
     )
