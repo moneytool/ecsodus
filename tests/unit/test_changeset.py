@@ -212,3 +212,20 @@ def test_missing_execution_status_or_foreign_parent_fails() -> None:
         check_change_sets([cs(nested_change()), child], patched_nested={"AddonsStack": URL}).verdict
         == FAIL
     )
+
+
+def test_nested_change_sets_are_unavailable_from_the_root_only() -> None:
+    from ecsodus.check.changeset import NESTED_UNAVAILABLE_REASON
+
+    child = child_cs(rc("Table", [policy()]))
+    child["ExecutionStatus"] = "UNAVAILABLE"
+    child["StatusReason"] = NESTED_UNAVAILABLE_REASON
+    nested = {"AddonsStack": URL}
+    assert check_change_sets([cs(nested_change()), child], patched_nested=nested).verdict == PASS
+    child["StatusReason"] = "something else"
+    assert check_change_sets([cs(nested_change()), child], patched_nested=nested).verdict == FAIL
+    root = cs(nested_change())
+    root["ExecutionStatus"] = "UNAVAILABLE"
+    root["StatusReason"] = NESTED_UNAVAILABLE_REASON
+    child["StatusReason"] = NESTED_UNAVAILABLE_REASON
+    assert check_change_sets([root, child], patched_nested=nested).verdict == FAIL

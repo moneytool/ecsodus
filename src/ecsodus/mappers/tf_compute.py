@@ -802,7 +802,9 @@ def _forward_config(live_action: dict[str, Any] | None) -> list:
     return [("forward", Block(fb))]
 
 
-def _action_block(a: dict[str, Any], live_action: dict[str, Any] | None = None) -> Block:
+def _action_block(
+    a: dict[str, Any], live_action: dict[str, Any] | None = None, forward_only: bool = False
+) -> Block:
     extra = set(a) - _ACTION_KEYS
     if extra:
         raise Unresolvable(f"listener action keys not supported: {sorted(extra)}")
@@ -813,8 +815,13 @@ def _action_block(a: dict[str, Any], live_action: dict[str, Any] | None = None) 
     if atype == "forward":
         if "TargetGroupArn" not in a:
             raise Unresolvable("weighted forward actions are not supported in v0.1")
-        body.append(("target_group_arn", a["TargetGroupArn"]))
-        body += _forward_config(live_action)
+        fwd = _forward_config(live_action)
+        # aws_lb_listener_rule refreshes a single-target forward action into the forward block
+        # alone (target_group_arn comes back empty), while aws_lb_listener keeps both: declare
+        # exactly what each resource reads back (AWS end-to-end run, steady-phase plan).
+        if not (forward_only and fwd):
+            body.append(("target_group_arn", a["TargetGroupArn"]))
+        body += fwd
     elif atype == "redirect":
         rc = a["RedirectConfig"]
         rb: list = [(tf, str(rc[k])) for k, tf in _REDIRECT_KEYS if k in rc]
@@ -932,8 +939,13 @@ def lb_listener_rule(ctx: Ctx) -> TfSpec:
     if priority == "default":
         raise Unresolvable("default listener rules are part of the listener")
     body: list = [("listener_arn", listener), ("priority", _int(priority))]
-    for a in ctx.r("Actions"):
-        body.append(("action", _action_block(a)))
+    live_actions = ctx.live.get("Actions") or []
+    unstable: list[str] = []
+    for i, a in enumerate(ctx.r("Actions")):
+        live_action = live_actions[i] if i < len(live_actions) else None
+        body.append(("action", _action_block(a, live_action, forward_only=True)))
+        if a.get("Type") == "forward" and (live_action or {}).get("ForwardConfig"):
+            unstable.append(f"action[{i}].target_group_arn")
     for c in ctx.r("Conditions"):
         body.append(("condition", _condition_block(c)))
     # CloudFormation's ListenerRule has no Tags property, so stack-level tags are never
@@ -941,7 +953,17 @@ def lb_listener_rule(ctx: Ctx) -> TfSpec:
     # are emitted only from a live read (or a template Tags property, should one appear).
     if ctx.has("Tags") or _live_tags(ctx.live) is not None:
         _add_tags(ctx, body)
-    return TfSpec("aws_lb_listener_rule", ctx.pid, body)
+    spec_notes: list[str] = []
+    if unstable:
+        # The provider reads a single-target forward action back with target_group_arn on
+        # import but without it after refresh, so no literal value is stable across both
+        # plans (AWS end-to-end run). The forward block carries the same target group.
+        body.append(_lifecycle_ignore(*unstable))
+        spec_notes.append(
+            "target_group_arn is ignored on forward actions: the provider reads it back "
+            "inconsistently; the forward block declares the same target group"
+        )
+    return TfSpec("aws_lb_listener_rule", ctx.pid, body, notes=spec_notes)
 
 
 @mapper("AWS::ElasticLoadBalancingV2::ListenerCertificate")

@@ -248,6 +248,9 @@ def _skeleton(text: str) -> list[str]:
         if _META_LINE.match(line):
             continue
         out.append(line)
+    # Blank lines at end of file carry no meaning; `aws ... --output text` appends one.
+    while out and not out[-1].strip():
+        out.pop()
     return out
 
 

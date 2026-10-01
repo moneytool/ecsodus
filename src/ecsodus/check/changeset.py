@@ -30,6 +30,7 @@ from typing import Any
 from ecsodus.emit.retain_patch import METADATA_KEY, NESTED_STACK_TYPE
 
 POLICY_ATTRIBUTES = {"DeletionPolicy", "UpdateReplacePolicy"}
+NESTED_UNAVAILABLE_REASON = "Only executable from the root change set."
 NO_CHANGES_REASONS = ("didn't contain changes", "No updates are to be performed")
 
 PASS = "pass"
@@ -155,7 +156,14 @@ def check_change_sets(
     for cs in sets:
         name = cs.get("StackName") or cs.get("ChangeSetName") or "?"
         status, execution = cs.get("Status"), cs.get("ExecutionStatus")
-        if status != "CREATE_COMPLETE" or execution != "AVAILABLE":
+        # Nested change sets are never executable on their own: AWS reports them
+        # UNAVAILABLE with this exact reason (observed in the AWS end-to-end run).
+        nested_ok = (
+            bool(cs.get("ParentChangeSetId"))
+            and execution == "UNAVAILABLE"
+            and cs.get("StatusReason") == NESTED_UNAVAILABLE_REASON
+        )
+        if status != "CREATE_COMPLETE" or (execution != "AVAILABLE" and not nested_ok):
             result.errors.append(
                 f"{name}: change set is {status}/{execution}, not CREATE_COMPLETE/AVAILABLE"
                 + (f" ({cs.get('StatusReason')})" if cs.get("StatusReason") else "")

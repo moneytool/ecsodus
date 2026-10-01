@@ -136,3 +136,10 @@ def test_tagged_mapping_patches_after_semantic_load() -> None:
     out = patch_template(text).text
     assert not verify_patch(text, out)
     assert cfn.load(out)["Resources"]["I"]["DeletionPolicy"] == "Retain"
+
+
+def test_trailing_blank_lines_from_cli_output_are_not_a_change() -> None:
+    text = TEMPLATES[0].read_text()
+    patched = patch_template(text).text
+    assert verify_patch(text + "\n  \n", patched) == []
+    assert verify_patch(text, patched + "\n") == []
