@@ -255,11 +255,14 @@ def test_service_connect_imported_from_live_primary_deployment(unsupported: str)
         "desiredCount": 3,
         "deployments": [{"status": "PRIMARY", "serviceConnectConfiguration": sc}],
     }
-    text = render(spec_of(run(inv, stack, "Service")))
+    spec = spec_of(run(inv, stack, "Service"))
+    text = render(spec)
     assert "service_connect_configuration {" in text
     assert 'namespace = "prod.my-app.local"' in text
     assert 'discovery_name = "fe-sc"' in text and "client_alias {" in text
-    assert "idle_timeout_seconds = 60" in text and "per_request_timeout_seconds = 0" in text
+    config = block_args(args(spec)["service_connect_configuration"])
+    timeout = block_args(block_args(config["service"])["timeout"])
+    assert timeout == {"idle_timeout_seconds": 60, "per_request_timeout_seconds": 0}
     if unsupported == "tls":
         sc["services"][0]["tls"] = {"issuerCertificateAuthority": {}}
         reason = "Service Connect service keys not supported"
