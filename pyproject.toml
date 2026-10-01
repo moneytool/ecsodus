@@ -7,7 +7,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Vamshidher Reddy Jannapu Reddy" }]
-keywords = ["aws", "copilot", "copilot-cli", "ecs", "terraform", "migration", "cloudformation", "app-runner"]
+keywords = ["aws", "aws-copilot", "copilot-cli", "copilot cli deprecated", "copilot end of support", "ecs", "amazon-ecs", "terraform", "terraform import", "migration", "cloudformation", "app-runner"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -22,8 +22,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/moneytool/ecsodus"
-Documentation = "https://github.com/moneytool/ecsodus/tree/main/docs"
+Homepage = "https://moneytool.github.io/ecsodus/"
+Documentation = "https://moneytool.github.io/ecsodus/"
+Source = "https://github.com/moneytool/ecsodus"
+DOI = "https://doi.org/10.5281/zenodo.23073590"
 Issues = "https://github.com/moneytool/ecsodus/issues"
 Changelog = "https://github.com/moneytool/ecsodus/blob/main/CHANGELOG.md"
 

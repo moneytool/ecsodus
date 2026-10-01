@@ -14,6 +14,14 @@ type: software
 license: Apache-2.0
 version: 0.1.1
 date-released: "2026-09-30"
+doi: "10.5281/zenodo.23073590"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23073590"
+    description: "Concept DOI: all versions, resolves to the latest."
+  - type: doi
+    value: "10.5281/zenodo.23073591"
+    description: "v0.1.1"
 repository-code: "https://github.com/moneytool/ecsodus"
 url: "https://pypi.org/project/ecsodus/"
 keywords:
