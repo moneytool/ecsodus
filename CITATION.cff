@@ -20,6 +20,9 @@ identifiers:
     value: "10.5281/zenodo.23073590"
     description: "Concept DOI: all versions, resolves to the latest."
   - type: doi
+    value: "10.5281/zenodo.23074010"
+    description: "v0.1.2"
+  - type: doi
     value: "10.5281/zenodo.23073591"
     description: "v0.1.1"
 repository-code: "https://github.com/moneytool/ecsodus"
