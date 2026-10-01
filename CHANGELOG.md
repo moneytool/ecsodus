@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The teardown gate is removed (ADR-0012). Runbook step 5 is always emitted, and the banner
+  states the scope the AWS run verified. `--i-understand-teardown-is-unverified` is now a
+  hidden no-op.
+
 ### Verified
 - AWS end-to-end run on 2026-09-30 against a real Copilot v1.34.1 app: 44/44 pure imports, all
   Copilot stacks torn down with zero data loss, and PLAN §6 questions 1–3 answered

@@ -60,12 +60,18 @@ def test_retain_patch_points_parent_at_patched_child(generated: Path) -> None:
     assert parent.count("DeletionPolicy: Retain") == 4
 
 
-def test_runbook_gates_teardown(generated: Path, tmp_path: Path) -> None:
+def test_runbook_always_includes_teardown(generated: Path, tmp_path: Path) -> None:
     rb = (generated / "RUNBOOK.md").read_text()
-    assert "UNVERIFIED TEARDOWN" in rb
-    assert "Not emitted" in rb and "aws cloudformation delete-stack " not in rb
+    assert "Verified on real AWS (2026-09-30)" in rb and "Not yet exercised" in rb
+    assert "UNVERIFIED" not in rb
+    assert "aws cloudformation delete-stack --stack-name demo-test-api" in rb
+    assert rb.index("--stack-name demo-test-api\n") < rb.index(
+        "delete-stack --stack-name demo-test\n"
+    )
     assert "ecsodus check --changeset" in rb and "--include-nested-stacks" in rb
     assert "## 6. Verify" in rb and "## 7. Never" in rb
+    assert "i-understand-teardown" not in rb
+    # The deprecated flag is still accepted and changes nothing.
     inv_path = tmp_path / "inventory.json"
     out2 = tmp_path / "infra2"
     assert (
@@ -76,15 +82,13 @@ def test_runbook_gates_teardown(generated: Path, tmp_path: Path) -> None:
                 "--out",
                 str(out2),
                 "--patch-bucket",
-                "b",
+                "my-bucket",
                 "--i-understand-teardown-is-unverified",
             ]
         )
         == 0
     )
-    rb2 = (out2 / "RUNBOOK.md").read_text()
-    assert "aws cloudformation delete-stack --stack-name demo-test-api" in rb2
-    assert rb2.index("demo-test-api\n") < rb2.index("delete-stack --stack-name demo-test\n")
+    assert (out2 / "RUNBOOK.md").read_text() == rb.replace(str(generated), str(out2))
 
 
 def test_check_commands(generated: Path, tmp_path: Path, capsys) -> None:

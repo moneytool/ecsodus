@@ -43,11 +43,13 @@ PLAN §6 questions 1–3 are answered: Retain stops custom-resource Delete handl
 change sets are applied, and nested patches produce no Dynamic entries. Question 4 (a custom
 domain and ACM certificate) was not covered.
 
+## Teardown gate: removed (ADR-0012)
+
+Step 5 is always emitted now, and the runbook banner states the verified scope.
+
 ## Open decisions for the maintainer
 
-1. **Teardown gate.** Should step 5 stay behind `--i-understand-teardown-is-unverified`? The gate
-   could be lifted now, or kept until a custom-domain run.
-2. **Publishing.** Making the repo public and releasing to PyPI need the maintainer's decision
+1. **Publishing.** Making the repo public and releasing to PyPI need the maintainer's decision
    (ADR-0009).
 
 ## Known limitations (fail-closed, documented)
@@ -64,6 +66,6 @@ domain and ACM certificate) was not covered.
 
 ## Next
 
-1. Decide on the teardown gate and on publishing. Then tag `v0.1.0`, release to PyPI and
+1. Decide on publishing. Then tag `v0.1.0`, release to PyPI and
    write the launch posts.
 2. v0.2: App Runner, with a rebuild-in-parallel mode.

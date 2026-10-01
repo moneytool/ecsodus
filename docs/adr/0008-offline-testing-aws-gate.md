@@ -1,6 +1,6 @@
 # ADR-0008: Offline testing during development; a real AWS run gates public release
 
-- Status: accepted
+- Status: accepted; the teardown gate was superseded by ADR-0012 after the AWS run passed
 - Date: 2026-09-29
 - Deciders: maintainer (the maintainer chose "offline only for now" when asked on 2026-09-29)
 

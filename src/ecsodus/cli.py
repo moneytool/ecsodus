@@ -3,7 +3,6 @@
     ecsodus inventory --app APP [--env ENV ...] [--keep-on-copilot NAME ...] -o inventory.json
     ecsodus report    inventory.json [-o REPORT.md]
     ecsodus generate  inventory.json --out DIR [--patch-bucket B] [--metadata-fallback]
-                      [--i-understand-teardown-is-unverified]
     ecsodus check     PLAN.json --manifest M --phase import|steady
     ecsodus check     --state state.txt --manifest M
     ecsodus check     --changeset CS.json ... --manifest M --stack S [--allow-metadata-key]
@@ -105,7 +104,7 @@ def cmd_generate(a: argparse.Namespace) -> int:
         runbook.render(
             plan,
             patches,
-            include_teardown=a.i_understand_teardown_is_unverified,
+            include_teardown=True,
             out_dir=str(out),
             inventory_path=a.inventory,
         )
@@ -374,10 +373,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="add an ecsodus:retain Metadata key per resource (RUNBOOK step 3)",
     )
+    # Deprecated no-op: the teardown gate was removed after the AWS e2e run (ADR-0012).
     s.add_argument(
-        "--i-understand-teardown-is-unverified",
-        action="store_true",
-        help="emit runbook step 5 (teardown) before the AWS end-to-end run",
+        "--i-understand-teardown-is-unverified", action="store_true", help=argparse.SUPPRESS
     )
     s.add_argument(
         "--allow-stale",

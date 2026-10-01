@@ -75,12 +75,16 @@ The patches are applied in two ways:
 | `check --state` | Every import is in Terraform state. |
 | `check --phase steady` | The plan has zero changes. |
 
-## What is still unverified
+## Verified on real AWS
 
-Only a real AWS run can settle these. They are why teardown is gated:
+The 2026-09-30 end-to-end run ([report](../e2e/2026-09-30-aws-e2e.md)) settled the open
+questions:
 
-1. Does `DeletionPolicy: Retain` on a `Custom::*` resource stop its Delete handler from being
-   invoked? If not, the runbook swaps in the emitted neutralizer first.
-2. How does CloudFormation report a policy-only change set? If it treats one as a no-op, the
-   runbook uses the Metadata fallback.
-3. Does a patched nested stack cause `Dynamic` entries in its parent's change set?
+1. `DeletionPolicy: Retain` on a `Custom::*` resource stops its Delete handler from being
+   invoked.
+2. Policy-only change sets are reported as `Modify` with `Scope: DeletionPolicy` and
+   `UpdateReplacePolicy`, and they are applied.
+3. A patched nested stack causes no `Dynamic` entries in its parent's change set.
+
+Not yet covered by a real run: custom domains and ACM certificates, Aurora addons, private
+placement with NAT, and partial migrations.

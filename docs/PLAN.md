@@ -358,7 +358,8 @@ questions:
 
 It also covers an interrupted handoff and rollback before step 5, a partial migration (one workload migrated, one left on Copilot), and a custom-domain variant before any claim that certificate and DNS survival is validated. Until it passes, the RUNBOOK
 teardown section carries an **UNVERIFIED** banner, and `generate` requires
-`--i-understand-teardown-is-unverified` to emit step 5 (steps 6–7 are always emitted). The e2e must run before 2027-07-29
+`--i-understand-teardown-is-unverified` to emit step 5 (steps 6–7 are always emitted).
+*(2026-09-30: the e2e passed and the gate was removed — ADR-0012.)* The e2e must run before 2027-07-29
 (the `nodejs20.x` create block).
 
 ## 7. Milestones

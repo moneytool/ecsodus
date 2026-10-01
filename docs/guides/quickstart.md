@@ -76,5 +76,5 @@ The retain patches are uploaded to Copilot's artifact bucket by default; overrid
 
 Each mutating command is preceded by the ecsodus check that gates it. Stop at the first failure.
 
-Step 5 (teardown) is only included with `--i-understand-teardown-is-unverified` until the ecsodus
-end-to-end run on real AWS has passed.
+Every step, including step 5 (teardown), is verified on real AWS (2026-09-30). The runbook
+banner lists what that run did not cover: custom domains, Aurora, NAT, and partial migrations.

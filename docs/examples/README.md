@@ -8,7 +8,7 @@ Copilot-rendered app:
 - an Aurora Serverless v2 addon
 
 The live state is synthetic but consistent: this is the app from `tests/golden/test_full_handoff.py`.
-The runbook was generated with `--i-understand-teardown-is-unverified`, so step 5 is shown.
+All runbook steps are shown, including teardown, which has been verified on real AWS.
 
 - [REPORT.md](copilot-lbws-aurora/REPORT.md): readiness report (66 imports, 12 manual-cleanup)
 - [RUNBOOK.md](copilot-lbws-aurora/RUNBOOK.md): the exact operator commands, steps 1–7

@@ -13,5 +13,6 @@
 | [0009](0009-private-repo.md) | Private repo until AWS-tested |
 | [0010](0010-repo-layout.md) | Repository layout and documentation standard |
 | [0011](0011-service-connect-adopt-in-place.md) | Import Service Connect as deployed in adopt-in-place |
+| [0012](0012-remove-teardown-gate.md) | Remove the teardown gate (supersedes part of 0008) |
 
 To add one, copy [0000-template.md](0000-template.md).
