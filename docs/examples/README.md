@@ -1,6 +1,6 @@
 # Examples
 
-[`copilot-lbws-aurora/`](copilot-lbws-aurora/) is the output of ecsodus for a real
+[`copilot-lbws-aurora/`](copilot-lbws-aurora/REPORT.md) is the output of ecsodus for a real
 Copilot-rendered app:
 - an environment built from `template-with-basic-manifest`, with a public ALB, HTTPS, NAT and
   delegated DNS

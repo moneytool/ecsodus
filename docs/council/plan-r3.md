@@ -1,8 +1,8 @@
 # ecsodus: plan (r3)
 
 *Safe exit from AWS Copilot CLI to Terraform-managed ECS. 2026-09-29.*
-*History: [r1](council/plan-r1.md), [r2](council/plan-r2.md). Council reviews and votes are in
-[`council/`](council/README.md). r3 folds in every round-2 condition; §11 maps each one to the
+*History: [r1](plan-r1.md), [r2](plan-r2.md). Council reviews and votes are in
+[`council/`](README.md). r3 folds in every round-2 condition; §11 maps each one to the
 section that addresses it.*
 
 ## 1. Problem and timing

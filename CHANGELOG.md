@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A docs site at https://moneytool.github.io/ecsodus/ (MkDocs Material on GitHub Pages) with a
+  sitemap, per-page descriptions, and pages on Copilot end of support, migrating Copilot to
+  Terraform, and an FAQ.
+- Zenodo DOI 10.5281/zenodo.23073590 (concept) in `CITATION.cff`, plus DOI, AWS ECS, Terraform
+  and docs badges.
+
 ## [0.1.1] - 2026-09-30
 
 The first release archived on Zenodo.

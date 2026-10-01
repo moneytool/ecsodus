@@ -1,0 +1,70 @@
+site_name: ecsodus — migrate AWS Copilot CLI apps to Terraform
+site_url: https://moneytool.github.io/ecsodus/
+site_description: >-
+  ecsodus safely migrates AWS Copilot CLI applications (end of support 2026-06-12) to
+  Terraform-managed Amazon ECS: adopt in place, import every resource, and delete the Copilot
+  CloudFormation stacks without deleting your infrastructure or data.
+site_author: Vamshidher Reddy Jannapu Reddy
+repo_url: https://github.com/moneytool/ecsodus
+repo_name: moneytool/ecsodus
+edit_uri: edit/main/docs/
+copyright: Apache-2.0 · ecsodus is not affiliated with Amazon Web Services or GitHub.
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+  palette:
+    - scheme: default
+      toggle: {icon: material/brightness-7, name: Dark mode}
+    - scheme: slate
+      toggle: {icon: material/brightness-4, name: Light mode}
+
+hooks:
+  - docs_hooks/lists.py
+
+plugins:
+  - search
+
+# Every link must resolve on the site: unrecognised (e.g. directory) links are warnings, so
+# `mkdocs build --strict` in CI fails on them.
+validation:
+  omitted_files: info  # ADRs and reviews are reached through links, not the nav
+  absolute_links: info
+  unrecognized_links: warn
+  anchors: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+exclude_docs: |
+  assets/demo.tape
+
+nav:
+  - Home: index.md
+  - AWS Copilot CLI end of support: copilot-end-of-support.md
+  - Migrate AWS Copilot to Terraform: migrate-copilot-to-terraform.md
+  - FAQ: faq.md
+  - Guides:
+      - Quickstart: guides/quickstart.md
+      - How it works: guides/how-it-works.md
+  - Copilot internals:
+      - Custom resources and their Delete handlers: knowledge/copilot-custom-resources.md
+      - Stack layering: knowledge/copilot-stacks.md
+  - Evidence:
+      - AWS end-to-end run (2026-09-30): e2e/2026-09-30-aws-e2e.md
+      - Example report: examples/copilot-lbws-aurora/REPORT.md
+      - Example runbook: examples/copilot-lbws-aurora/RUNBOOK.md
+      - Status: STATUS.md
+  - Design:
+      - Plan: PLAN.md
+      - Decisions (ADRs): adr/README.md
+      - Council reviews: council/README.md
+      - Code reviews: council/code-review-v0.1/README.md
