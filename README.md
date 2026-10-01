@@ -1,5 +1,8 @@
 # ecsodus
 
+[![PyPI](https://img.shields.io/pypi/v/ecsodus?label=PyPI&cacheSeconds=3600)](https://pypi.org/project/ecsodus/)
+[![CI](https://github.com/moneytool/ecsodus/actions/workflows/ci.yml/badge.svg)](https://github.com/moneytool/ecsodus/actions/workflows/ci.yml)
+
 **Safely migrate AWS Copilot CLI apps to Terraform-managed ECS.**
 
 AWS ended support for the Copilot CLI on 2026-06-12 and archived its repository on 2026-06-22.
@@ -96,6 +99,11 @@ uv run ruff check . && uv run mypy src
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+
+## Citation
+
+If you use ecsodus, please cite it: see [`CITATION.cff`](CITATION.cff). GitHub's "Cite this
+repository" button reads it.
 
 ## License
 

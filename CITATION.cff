@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it."
+title: "ecsodus: safe adopt-in-place migration of AWS Copilot CLI applications to Terraform-managed ECS"
+abstract: >-
+  ecsodus migrates applications deployed with the retired AWS Copilot CLI to Terraform without
+  moving traffic. It inventories the Copilot CloudFormation stacks read-only, imports every
+  resource in place with literal values so the first Terraform plan is import-only, and emits
+  retain patches that put DeletionPolicy and UpdateReplacePolicy Retain on every resource so the
+  stacks can be deleted without deleting infrastructure, which neutralises the destructive Delete
+  handlers of Copilot's custom resources. Each mutating runbook step is gated by a machine check
+  (change-set acceptance rule, import-only and zero-change plan gates, retain verification). The
+  design was approved through a three-model review council and verified end to end on AWS.
+type: software
+license: Apache-2.0
+version: 0.1.0
+date-released: "2026-09-30"
+repository-code: "https://github.com/moneytool/ecsodus"
+url: "https://pypi.org/project/ecsodus/"
+keywords:
+  - AWS Copilot CLI
+  - Amazon ECS
+  - Terraform
+  - CloudFormation
+  - infrastructure migration
+  - infrastructure as code
+  - site reliability engineering
+authors:
+  - family-names: "Jannapu Reddy"
+    given-names: "Vamshidher Reddy"
+    affiliation: "Independent researcher"
+    orcid: "https://orcid.org/0009-0005-1167-2026"
