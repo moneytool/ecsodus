@@ -45,7 +45,7 @@ markdown_extensions:
       permalink: true
 
 exclude_docs: |
-  assets/demo.tape
+  assets/*.tape
 
 nav:
   - Home: index.md

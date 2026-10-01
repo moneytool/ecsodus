@@ -16,6 +16,8 @@ Amazon ECS**, without moving traffic and without losing data. It is free and ope
 pipx install ecsodus      # or: uvx ecsodus --help
 ```
 
+![How ecsodus migrates an AWS Copilot app to Terraform in place](assets/how-it-works.gif)
+
 ## Why you need more than "terraform import"
 
 AWS ended support for the Copilot CLI on **2026-06-12**, and archived the
@@ -33,6 +35,8 @@ without deleting what they manage. Done naively, that destroys production:
   are deleted along with the service stack.
 - **`--retain-resources` doesn't help.** It only works on stacks already in `DELETE_FAILED`.
 
+![Deleting Copilot stacks as-is versus after ecsodus retain patches](assets/retain-patch.gif)
+
 ## What ecsodus does
 
 1. **Inventories** your Copilot app, read-only.
@@ -41,6 +45,8 @@ without deleting what they manage. Done naively, that destroys production:
 3. **Writes retain patches.** They add `DeletionPolicy: Retain` to every resource in every stack,
    so deleting a stack can no longer delete anything or invoke a Delete handler.
 4. **Writes a runbook** in which every mutating step is gated by a machine check.
+
+![ecsodus check refusing unsafe steps and passing safe ones](assets/gates.gif)
 
 This was verified on real AWS: a live Copilot app was migrated with 44/44 pure imports. All its
 Copilot stacks were deleted, the service kept serving, and the data survived

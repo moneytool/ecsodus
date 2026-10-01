@@ -12,7 +12,7 @@
 
 **Safely migrate AWS Copilot CLI apps to Terraform-managed ECS.**
 
-![ecsodus: report what a stack delete would destroy, then generate Terraform imports, retain patches and a gated runbook](docs/assets/demo.gif)
+![How ecsodus migrates an AWS Copilot app to Terraform in place: inventory, report, generate, retain-patch, import and teardown](https://raw.githubusercontent.com/moneytool/ecsodus/main/docs/assets/how-it-works.gif)
 
 AWS ended support for the Copilot CLI on 2026-06-12 and archived its repository on 2026-06-22.
 Your Copilot services keep running as CloudFormation stacks. Moving them to Terraform means
@@ -28,6 +28,8 @@ production:
   `DeletionPolicy`.
 - **`--retain-resources` doesn't help.** The obvious flag only works on stacks already in
   `DELETE_FAILED`.
+
+![Deleting Copilot stacks as-is deletes the load balancer, NAT gateways, EFS, DynamoDB, certificates and the ECS service; after ecsodus retain patches every resource is kept and owned by Terraform](https://raw.githubusercontent.com/moneytool/ecsodus/main/docs/assets/retain-patch.gif)
 
 ecsodus knows where these traps are. It reads your Copilot app and **adopts it in place**:
 Terraform imports the resources exactly as they run today, and no traffic moves. It writes
@@ -69,6 +71,16 @@ ecsodus verify-retain --app myapp                  # read-only: is every resourc
   If anything is unsupported, the stack and everything it depends on stay on Copilot, and the
   report says why. Nothing is ever dropped silently.
 - **Honest baseline.** Every report starts with the zero-risk option: keep the CloudFormation.
+
+![ecsodus terminal demo: report what a stack delete would destroy, then generate Terraform imports, retain patches and a gated runbook](https://raw.githubusercontent.com/moneytool/ecsodus/main/docs/assets/demo.gif)
+
+### Safety gates
+
+Every mutating step in the runbook runs only after an `ecsodus check` passes. An import that
+would also change a resource fails, and so does a retain-patch change set that touches anything
+except deletion policies:
+
+![ecsodus check refusing an unsafe import plan and a non-policy change set, then passing the pure import and the policy-only change set](https://raw.githubusercontent.com/moneytool/ecsodus/main/docs/assets/gates.gif)
 
 ## How it compares
 
