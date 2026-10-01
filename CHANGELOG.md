@@ -6,12 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-30
+
+Metadata and documentation only: no code changes since 0.1.1.
+
 ### Added
 - A docs site at https://moneytool.github.io/ecsodus/ (MkDocs Material on GitHub Pages) with a
   sitemap, per-page descriptions, and pages on Copilot end of support, migrating Copilot to
   Terraform, and an FAQ.
 - Zenodo DOI 10.5281/zenodo.23073590 (concept) in `CITATION.cff`, plus DOI, AWS ECS, Terraform
   and docs badges.
+- README and docs animations: how it works, why retain patches matter, and the safety gates in
+  action (`tools/visuals/` regenerates them).
+- Search metadata on the docs site: Open Graph and Twitter cards, JSON-LD structured data, and
+  Google Search Console verification, checked in CI by `tools/check_site_meta.py`.
+- PyPI project links point to the docs site and the DOI, with search keywords.
 
 ## [0.1.1] - 2026-09-30
 
@@ -74,6 +83,7 @@ First public release. It was verified end to end on real AWS against a Copilot v
 - Two independent code reviews and a verification review; every P0 and P1 finding is fixed
   (`docs/council/code-review-v0.1/`).
 
-[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.1
 [0.1.0]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.0

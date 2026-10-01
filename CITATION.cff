@@ -12,7 +12,7 @@ abstract: >-
   design was approved through a three-model review council and verified end to end on AWS.
 type: software
 license: Apache-2.0
-version: 0.1.1
+version: 0.1.2
 date-released: "2026-09-30"
 doi: "10.5281/zenodo.23073590"
 identifiers:
