@@ -2,8 +2,13 @@
 
 [![PyPI](https://img.shields.io/pypi/v/ecsodus?label=PyPI&cacheSeconds=3600)](https://pypi.org/project/ecsodus/)
 [![CI](https://github.com/moneytool/ecsodus/actions/workflows/ci.yml/badge.svg)](https://github.com/moneytool/ecsodus/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/ecsodus)](https://pypi.org/project/ecsodus/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![AWS e2e](https://img.shields.io/badge/AWS%20e2e-44%2F44%20imports%2C%20zero%20data%20loss-brightgreen)](docs/e2e/2026-09-30-aws-e2e.md)
 
 **Safely migrate AWS Copilot CLI apps to Terraform-managed ECS.**
+
+![ecsodus: report what a stack delete would destroy, then generate Terraform imports, retain patches and a gated runbook](docs/assets/demo.gif)
 
 AWS ended support for the Copilot CLI on 2026-06-12 and archived its repository on 2026-06-22.
 Your Copilot services keep running as CloudFormation stacks. Moving them to Terraform means
@@ -60,6 +65,18 @@ ecsodus verify-retain --app myapp                  # read-only: is every resourc
   If anything is unsupported, the stack and everything it depends on stay on Copilot, and the
   report says why. Nothing is ever dropped silently.
 - **Honest baseline.** Every report starts with the zero-risk option: keep the CloudFormation.
+
+## How it compares
+
+| Approach | Moves traffic? | Keeps your data? | Ends on Terraform? | Handles Copilot's Delete handlers? |
+|---|---|---|---|---|
+| **ecsodus** (adopt in place) | No | Yes, every resource is retained, then imported | Yes | Yes: retain patches, verified on AWS |
+| Rebuild on ECS Express Mode or CDK (AWS's suggestion) | Yes, a cutover | You migrate stateful resources yourself | No (Express Mode / CDK) | Not applicable until you delete the old stacks |
+| Convert templates with [cf2tf](https://github.com/DontShaveTheYak/cf2tf) | Depends | Only if you import and retain by hand | Yes | No |
+| Keep the CloudFormation | No | Yes | No | Not triggered |
+
+If you don't need Terraform, keeping the CloudFormation is the zero-risk choice, and every
+ecsodus report says so first.
 
 ## Scope (v0.1)
 
