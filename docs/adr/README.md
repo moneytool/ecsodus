@@ -10,9 +10,10 @@
 | [0006](0006-terraform-flat-imports.md) | Terraform only; flat root-module imports |
 | [0007](0007-no-proton.md) | No Proton tooling |
 | [0008](0008-offline-testing-aws-gate.md) | Offline testing; real AWS run gates release |
-| [0009](0009-private-repo.md) | Private repo until AWS-tested |
+| [0009](0009-private-repo.md) | Private repo until AWS-tested (superseded by 0013) |
 | [0010](0010-repo-layout.md) | Repository layout and documentation standard |
 | [0011](0011-service-connect-adopt-in-place.md) | Import Service Connect as deployed in adopt-in-place |
 | [0012](0012-remove-teardown-gate.md) | Remove the teardown gate (supersedes part of 0008) |
+| [0013](0013-public-release.md) | Public repository and PyPI release (supersedes 0009) |
 
 To add one, copy [0000-template.md](0000-template.md).

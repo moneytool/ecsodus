@@ -1,4 +1,4 @@
-# Status: v0.1.0rc1 + AWS end-to-end passed (2026-09-30)
+# Status: v0.1.0 released (2026-09-30)
 
 ## Done
 
@@ -25,7 +25,8 @@
   [council/code-review-v0.1/](council/code-review-v0.1/README.md).
 - **Checks.** `ruff`, `ruff format`, `mypy` and CI (GitHub Actions on Python 3.11–3.13) are all
   green.
-- **Repository.** It is **private** at `github.com/moneytool/ecsodus`.
+- **Repository.** It is **public** at `github.com/moneytool/ecsodus`, and published to PyPI
+  as `ecsodus` (ADR-0013). `main` and release tags are protected by rulesets.
 
 ## AWS end-to-end: passed (2026-09-30)
 
@@ -47,11 +48,6 @@ domain and ACM certificate) was not covered.
 
 Step 5 is always emitted now, and the runbook banner states the verified scope.
 
-## Open decisions for the maintainer
-
-1. **Publishing.** Making the repo public and releasing to PyPI need the maintainer's decision
-   (ADR-0009).
-
 ## Known limitations (fail-closed, documented)
 
 - **Unsupported in v0.1:** Worker Services, Scheduled Jobs, RDWS, Static Sites, NLB, CloudFront,
@@ -66,6 +62,5 @@ Step 5 is always emitted now, and the runbook banner states the verified scope.
 
 ## Next
 
-1. Decide on publishing. Then tag `v0.1.0`, release to PyPI and
-   write the launch posts.
+1. Launch posts and docs pages titled for the searches people make (PLAN §7, M4).
 2. v0.2: App Runner, with a rebuild-in-parallel mode.

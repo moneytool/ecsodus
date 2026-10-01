@@ -1,9 +1,10 @@
 [project]
 name = "ecsodus"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "Safely migrate AWS Copilot CLI apps to Terraform-managed ECS (adopt in place, retain-patched teardown)"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Vamshidher Reddy Jannapu" }]
 keywords = ["aws", "copilot", "copilot-cli", "ecs", "terraform", "migration", "cloudformation", "app-runner"]
@@ -19,6 +20,12 @@ dependencies = [
   "ruamel.yaml>=0.18",
   "jinja2>=3.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/moneytool/ecsodus"
+Documentation = "https://github.com/moneytool/ecsodus/tree/main/docs"
+Issues = "https://github.com/moneytool/ecsodus/issues"
+Changelog = "https://github.com/moneytool/ecsodus/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ecsodus = "ecsodus.cli:main"

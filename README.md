@@ -22,9 +22,16 @@ Terraform imports the resources exactly as they run today, and no traffic moves.
 **retain patches** so that no stack delete can remove anything, and a step-by-step runbook with a
 machine check before every mutating step.
 
-> **Status: v0.1.0rc1, private.** Feature-complete for v0.1. It is tested offline against real
-> Copilot-generated templates, and it passed a real AWS end-to-end run on 2026-09-30, including
-> teardown ([report](docs/e2e/2026-09-30-aws-e2e.md)).
+> **Status: v0.1.0, alpha.** It is tested offline against real Copilot-generated templates, and
+> it passed a real AWS end-to-end run on 2026-09-30, including teardown
+> ([report](docs/e2e/2026-09-30-aws-e2e.md)). Read the [verified scope](docs/STATUS.md) before
+> running it against production.
+
+## Install
+
+```bash
+pipx install ecsodus      # or run it without installing: uvx ecsodus --help
+```
 
 ## What it does
 

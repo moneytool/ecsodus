@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-30
+
+First public release. It was verified end to end on real AWS against a Copilot v1.34.1 app
+(`docs/e2e/2026-09-30-aws-e2e.md`).
+
 ### Changed
 - The teardown gate is removed (ADR-0012). Runbook step 5 is always emitted, and the banner
   states the scope the AWS run verified. `--i-understand-teardown-is-unverified` is now a
@@ -51,3 +56,6 @@ All notable changes to this project are documented here. The format follows
 ### Security
 - Two independent code reviews and a verification review; every P0 and P1 finding is fixed
   (`docs/council/code-review-v0.1/`).
+
+[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.0

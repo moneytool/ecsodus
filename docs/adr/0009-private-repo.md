@@ -1,6 +1,6 @@
 # ADR-0009: Keep the GitHub repo private until the AWS run passes
 
-- Status: accepted
+- Status: superseded by ADR-0013
 - Date: 2026-09-29
 - Deciders: maintainer
 
