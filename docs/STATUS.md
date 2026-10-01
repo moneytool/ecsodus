@@ -53,7 +53,8 @@ domain and ACM certificate) was not covered.
 ## Known limitations (fail-closed, documented)
 
 - **Unsupported in v0.1:** Worker Services, Scheduled Jobs, RDWS, Static Sites, NLB, CloudFront,
-  sidecars, Service Connect, pipelines, and Transform or `Fn::ForEach` templates. Each is
+  sidecars, pipelines, and Transform or `Fn::ForEach` templates. (Service Connect is imported
+  as deployed, per ADR-0011.) Each is
   detected, reported, and kept on Copilot.
 - **Partial imports:** some imports are generated with notes, where a sub-resource is a separate
   Terraform resource (S3 bucket sub-configurations, IAM managed-policy attachments, cluster
