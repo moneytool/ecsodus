@@ -75,6 +75,8 @@ extra:
   doi: 10.5281/zenodo.23073590
   author_orcid: https://orcid.org/0009-0005-1167-2026
   social_image: assets/social-preview.png
-  # Google Search Console ownership check: paste the HTML-tag token for the property
+  # Sitemap discovery: crawlers only read robots.txt at the host root (moneytool.github.io), which
+  # this project site cannot serve, so sitemap.xml is submitted in Google Search Console instead.
+  # Google Search Console ownership check: the HTML-tag token for the property
   # https://moneytool.github.io/ecsodus/ (emitted on every page by overrides/main.html).
   google_site_verification: "4zZRo_MaoDmUuxMhkdR0dvvvv9t_i4m7PBJyIAvlH-M"
