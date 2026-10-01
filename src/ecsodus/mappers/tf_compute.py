@@ -515,12 +515,20 @@ def _service_connect(ctx: Ctx) -> Block | None:
         if svc.get("ingressPortOverride") is not None:
             sb.append(("ingress_port_override", _int(svc["ingressPortOverride"])))
         for ca in svc.get("clientAliases") or []:
+            extra = set(ca) - {"port", "dnsName"}
+            if extra:
+                raise Unresolvable(
+                    f"Service Connect client alias keys not supported: {sorted(extra)}"
+                )
             cab: list = [("port", _int(ca["port"]))]
             if ca.get("dnsName"):
                 cab.append(("dns_name", ca["dnsName"]))
             sb.append(("client_alias", Block(cab)))
         to = svc.get("timeout")
         if to:
+            extra = set(to) - {"idleTimeoutSeconds", "perRequestTimeoutSeconds"}
+            if extra:
+                raise Unresolvable(f"Service Connect timeout keys not supported: {sorted(extra)}")
             tob: list = []
             if to.get("idleTimeoutSeconds") is not None:
                 tob.append(("idle_timeout_seconds", _int(to["idleTimeoutSeconds"])))
