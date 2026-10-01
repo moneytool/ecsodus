@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `CITATION.cff` with the author's ORCID and affiliation, plus README badges for PyPI and CI.
+
+### Fixed
+- The package metadata now gives the author's full surname, "Jannapu Reddy".
+
 ## [0.1.0] - 2026-09-30
 
 First public release. It was verified end to end on real AWS against a Copilot v1.34.1 app
