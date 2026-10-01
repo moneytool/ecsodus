@@ -10,7 +10,7 @@
   `verify-retain`. A sixth, `verify-fresh`, came out of the code review.
 - **Mappers.** 61 CloudFormation resource types map to Terraform, covering the network, compute,
   data, IAM, DNS and out-of-band families. Unsupported shapes fail closed as `blocked`.
-- **Knowledge base.** The [Copilot knowledge base](knowledge/) covers all 13 custom resources
+- **Knowledge base.** The [Copilot knowledge base](knowledge/copilot-custom-resources.md) covers all 13 custom resources
   (9 of them have destructive Delete handlers), the stack layering, and the env conditions.
 - **Tests.** 261 tests pass offline:
   - real Copilot-rendered fixtures

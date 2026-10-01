@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uvx --with mkdocs-material mkdocs build --site-dir site
+      - run: uvx --with mkdocs-material mkdocs build --strict --site-dir site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

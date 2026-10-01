@@ -15,7 +15,9 @@ Yes. AWS ended support on 2026-06-12 and archived the repository on 2026-06-22. 
 ## Will my Copilot services stop running?
 No. They are CloudFormation stacks and keep running. Two dates matter for Copilot's
 custom-resource Lambdas, which run on `nodejs20.x`: creating them is blocked from 2027-07-29, and
-updating them from 2027-08-31.
+updating them from 2027-08-31
+([AWS Lambda runtime deprecation table](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html#runtimes-deprecated), checked 2026-09-30; AWS can
+change these dates).
 
 ## Can I just delete the Copilot CloudFormation stacks after importing into Terraform?
 Not safely without preparation. A normal stack delete removes every resource without

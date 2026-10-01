@@ -22,8 +22,9 @@ the tool that manages them:
 - **No fixes.** New AWS features, API changes and bugs in the CLI will not be fixed.
 - **Lambda runtime deadlines.** Copilot's custom-resource Lambdas run on **`nodejs20.x`**. AWS
   blocks *creating* functions on that runtime from **2027-07-29**, and *updating* them from
-  **2027-08-31**. After those dates, a stack operation that needs to recreate or update those
-  functions will fail.
+  **2027-08-31**, according to the [Lambda runtime deprecation table](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html#runtimes-deprecated)
+  (AWS can change those dates; check the table). After them, a stack operation that needs to
+  recreate or update those functions will fail.
 
 ## Your options
 

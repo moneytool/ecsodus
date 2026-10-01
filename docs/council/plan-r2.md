@@ -1,7 +1,7 @@
 # ecsodus: plan (r2, final after council)
 
 *Safe exit from AWS Copilot CLI (and later App Runner) to Terraform-managed ECS. 2026-09-29.*
-*The r1 draft and the three council reviews are in [`council/`](council/README.md).*
+*The r1 draft and the three council reviews are in [`council/`](README.md).*
 
 ## 1. Problem and timing
 
@@ -153,7 +153,7 @@ These tables double as the SEO docs pages.
   - Run ecsodus, apply, retain-patch and tear down.
   - Assert that the sentinel data, the ALB, the certificate, the DNS and the ECR images all
     survive.
-  - Settle the three unverified questions listed in [council/README.md](council/README.md).
+  - Settle the three unverified questions listed in [council/README.md](README.md).
   - Test an interrupted handoff and a rollback.
   - Needs a Route 53 domain and costs a few dollars (ALB, NAT, Aurora): propose the run, get
     approval, and tear down the same day.

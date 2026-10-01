@@ -23,8 +23,19 @@ theme:
     - scheme: slate
       toggle: {icon: material/brightness-4, name: Light mode}
 
+hooks:
+  - docs_hooks/lists.py
+
 plugins:
   - search
+
+# Every link must resolve on the site: unrecognised (e.g. directory) links are warnings, so
+# `mkdocs build --strict` in CI fails on them.
+validation:
+  omitted_files: info  # ADRs and reviews are reached through links, not the nav
+  absolute_links: info
+  unrecognized_links: warn
+  anchors: warn
 
 markdown_extensions:
   - admonition

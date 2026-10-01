@@ -23,6 +23,7 @@ The inventory reads your stacks, templates and live state. It never changes anyt
 call it can make is a `Describe`, `List` or `Get`, and it never reads secret values.
 
 The report covers:
+
 - whether each stack can be handed off, and why or why not
 - **what deleting each stack without protection would destroy**
 - anything ecsodus can't migrate yet, which stays on Copilot
@@ -34,6 +35,7 @@ ecsodus generate inventory.json --out infra/
 ```
 
 You get:
+
 - **Terraform files** with `import` blocks for every resource, using the exact deployed values,
   so the first plan imports and changes nothing
 - **retain patches**: each stack's template with `DeletionPolicy: Retain` on every resource
