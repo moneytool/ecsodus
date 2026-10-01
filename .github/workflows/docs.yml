@@ -3,7 +3,7 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "mkdocs.yml", "overrides/**", "docs_hooks/**", "tools/check_site_meta.py", ".github/workflows/docs.yml"]
   workflow_dispatch:
 
 permissions:
@@ -22,6 +22,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uvx --with mkdocs-material mkdocs build --strict --site-dir site
+      - name: Check search metadata (escaping, Open Graph, JSON-LD)
+        run: python3 tools/check_site_meta.py site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
