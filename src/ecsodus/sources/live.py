@@ -257,6 +257,8 @@ def _buckets(clients: Clients, inv: Inventory, ids: list[str]) -> None:
                 info[key] = _clean(getattr(s3, op)(Bucket=name))
             except Exception:  # noqa: BLE001 - absent configuration raises
                 info[key] = None
+        with contextlib.suppress(Exception):  # a bucket without a policy raises
+            info["Policy"] = s3.get_bucket_policy(Bucket=name).get("Policy")
         inv.live[name] = info
 
 
@@ -392,3 +394,38 @@ def _flow_logs(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     ec2 = clients("ec2")
     for fl in paginate(ec2, "describe_flow_logs", "FlowLogs", FlowLogIds=ids):
         inv.live[fl["FlowLogId"]] = fl
+
+
+def _elbv2_tags(clients: Clients, inv: Inventory, arns: list[str]) -> None:
+    """Live tags for ELBv2 resources (CloudFormation propagates stack tags onto them)."""
+    elb = clients("elbv2")
+    for chunk in _chunks(arns, 20):
+        for d in elb.describe_tags(ResourceArns=chunk).get("TagDescriptions") or []:
+            entry = inv.live.setdefault(d["ResourceArn"], {})
+            entry["Tags"] = d.get("Tags", [])
+
+
+_LB_TYPES = (
+    "AWS::ElasticLoadBalancingV2::LoadBalancer",
+    "AWS::ElasticLoadBalancingV2::TargetGroup",
+    "AWS::ElasticLoadBalancingV2::Listener",
+    "AWS::ElasticLoadBalancingV2::ListenerRule",
+)
+_base_read_live = read_live
+
+
+def read_live(clients: Clients, inv: Inventory) -> None:  # type: ignore[no-redef]
+    _base_read_live(clients, inv)
+    arns = sorted(
+        {
+            r.physical_id
+            for st in inv.stacks.values()
+            for r in st.resources
+            if r.type in _LB_TYPES and r.physical_id and r.physical_id.startswith("arn:")
+        }
+    )
+    if arns:
+        try:
+            _elbv2_tags(clients, inv, arns)
+        except Exception as exc:  # noqa: BLE001
+            inv.unavailable.append({"type": "elbv2 tags", "reason": f"live read failed: {exc}"})

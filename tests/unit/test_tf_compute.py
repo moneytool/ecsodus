@@ -228,11 +228,37 @@ def test_service_without_live_desired_count_is_blocked(svc):
     blocked(run(inv, stack, "Service"), "desiredCount")
 
 
-def test_service_connect_is_blocked():
+def test_service_connect_imported_from_live_primary_deployment():
+    """ADR-0011: Copilot enables Service Connect by default; adopt-in-place imports it as is."""
     inv, stack = load("workloads/svc-prod.stack.yml", stack_name="my-app-prod-fe", env="prod")
     add_env_exports(inv, env="prod")
-    inv.live[stack.resource("Service").physical_id] = {"desiredCount": 3}
-    blocked(run(inv, stack, "Service"), "Service Connect is blocked in v0.1")
+    pid = f"arn:aws:ecs:{ARN}:service/{CLUSTER}/my-app-prod-fe-Service-XYZ"
+    set_pid(stack, "Service", pid)
+    inv.stacks["my-app-prod"].exports["my-app-prod-ClusterId"] = CLUSTER
+    inv.live[pid] = {"desiredCount": 3}
+    blocked(run(inv, stack, "Service"), "PRIMARY deployment")
+    sc = {
+        "enabled": True,
+        "namespace": "prod.my-app.local",
+        "services": [
+            {
+                "portName": "target",
+                "discoveryName": "fe-sc",
+                "clientAliases": [{"port": 80, "dnsName": "fe"}],
+            }
+        ],
+        "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": "/copilot/x"}},
+    }
+    inv.live[pid] = {
+        "desiredCount": 3,
+        "deployments": [{"status": "PRIMARY", "serviceConnectConfiguration": sc}],
+    }
+    text = render(spec_of(run(inv, stack, "Service")))
+    assert "service_connect_configuration {" in text
+    assert 'namespace = "prod.my-app.local"' in text
+    assert 'discovery_name = "fe-sc"' in text and "client_alias {" in text
+    sc["services"][0]["tls"] = {"issuerCertificateAuthority": {}}
+    blocked(run(inv, stack, "Service"), "Service Connect service keys not supported")
 
 
 def test_backend_service_enable_execute_command():

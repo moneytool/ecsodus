@@ -58,6 +58,12 @@ _ARN_TEMPLATES: dict[tuple[str, str], str] = {
     ("AWS::Route53::HostedZone", "Id"): "{id}",
     ("AWS::EC2::EIP", "PublicIp"): "{id}",
     ("AWS::ServiceDiscovery::PrivateDnsNamespace", "Id"): "{id}",
+    (
+        "AWS::ServiceDiscovery::PrivateDnsNamespace",
+        "Arn",
+    ): "arn:{p}:servicediscovery:{r}:{a}:namespace/{id}",
+    ("AWS::ServiceDiscovery::Service", "Id"): "{id}",
+    ("AWS::ServiceDiscovery::Service", "Arn"): "arn:{p}:servicediscovery:{r}:{a}:service/{id}",
     ("AWS::ECS::Service", "Name"): "{last_slash}",
     ("AWS::Lambda::Function", "Arn"): "arn:{p}:lambda:{r}:{a}:function:{id}",
 }
@@ -209,7 +215,8 @@ class Resolver:
             text, variables = arg, {}
 
         def repl(m: re.Match[str]) -> str:
-            name = m.group(1)
+            # CloudFormation tolerates whitespace inside ${ } (Copilot writes `${ sentinel.Arn}`).
+            name = m.group(1).strip()
             if name.startswith("!"):
                 return "${" + name[1:] + "}"
             if name in variables:

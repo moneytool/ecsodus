@@ -101,6 +101,8 @@ def inventory(
             stack.kind = ENV
         elif d["StackName"] == f"{app}-infrastructure-roles":
             stack.kind = APP
+        elif d["StackName"].startswith(f"StackSet-{app}-infrastructure-"):
+            continue  # a StackSet instance: discovered through the StackSet below
         else:
             inv.unavailable.append(
                 {"stack": d["StackName"], "reason": "unrecognised Copilot stack"}

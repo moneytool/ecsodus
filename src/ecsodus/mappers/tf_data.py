@@ -657,9 +657,17 @@ def s3_bucket(ctx: Ctx) -> TfSpec:
 
 @mapper("AWS::S3::BucketPolicy")
 def s3_bucket_policy(ctx: Ctx) -> TfSpec:
+    """aws_s3_bucket_policy, imported by bucket name.
+
+    The policy is the live ``GetBucketPolicy`` document when the inventory has it: AWS
+    normalises stored policies (single-element arrays become strings, duplicate principals
+    collapse), so the template's document would show a diff on import (AWS end-to-end run).
+    """
     _only(ctx, {"Bucket", "PolicyDocument"})
     bucket = ctx.r("Bucket")
-    body: list = [("bucket", bucket), ("policy", _json_doc(ctx.r("PolicyDocument")))]
+    live_policy = (ctx.inv.live.get(bucket) or {}).get("Policy")
+    policy = live_policy if isinstance(live_policy, str) else _json_doc(ctx.r("PolicyDocument"))
+    body: list = [("bucket", bucket), ("policy", policy)]
     return TfSpec("aws_s3_bucket_policy", bucket, body)
 
 

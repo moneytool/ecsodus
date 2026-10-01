@@ -123,3 +123,8 @@ def test_load_balancer_attribute_aliases_and_full_names() -> None:
     assert r.resolve({"Fn::GetAtt": ["TG", "TargetGroupFullName"]}) == (
         "targetgroup/demo-tg/0123456789abcdef"
     )
+
+
+def test_sub_tolerates_whitespace_inside_braces() -> None:
+    r = make()
+    assert r.resolve({"Fn::Sub": "${ AppName}-${AWS::Region }"}) == "demo-us-west-2"

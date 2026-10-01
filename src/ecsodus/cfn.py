@@ -192,7 +192,7 @@ def _sub_vars(template: str) -> set[str]:
         end = template.find("}", start)
         if end < 0:
             return out
-        name = template[start + 2 : end]
+        name = template[start + 2 : end].strip()
         if not name.startswith("!"):
             out.add(name.split(".", 1)[0])
         i = end + 1

@@ -467,6 +467,70 @@ def _service_names(ctx: Ctx) -> tuple[str, str]:
     return cluster, name
 
 
+_SC_KEYS = {"enabled", "namespace", "services", "logConfiguration"}
+_SC_SERVICE_KEYS = {"portName", "discoveryName", "clientAliases", "ingressPortOverride",
+                    "timeout"}  # fmt: skip
+
+
+def _service_connect(ctx: Ctx) -> Block | None:
+    """Service Connect as deployed (ADR-0011): copied exactly from the PRIMARY deployment.
+
+    Copilot v1.34 enables Service Connect on every Load Balanced Web Service by default. In
+    adopt-in-place nothing moves, so the existing configuration is imported as it is; only
+    rebuild mode (v0.2) has to reason about Service Connect consumers. Unknown keys and TLS
+    block the service.
+    """
+    tmpl = ctx.r("ServiceConnectConfiguration", None)
+    if not tmpl or not _bool(tmpl.get("Enabled", False)):
+        return None
+    primary = next(
+        (d for d in ctx.live.get("deployments") or [] if d.get("status") == "PRIMARY"), None
+    )
+    live = (primary or {}).get("serviceConnectConfiguration")
+    if not live:
+        raise Unresolvable(
+            "Service Connect enabled but the live PRIMARY deployment config is missing"
+        )
+    if set(live) - _SC_KEYS:
+        raise Unresolvable(f"Service Connect keys not supported: {sorted(set(live) - _SC_KEYS)}")
+    b: list = [("enabled", bool(live.get("enabled")))]
+    if live.get("namespace"):
+        b.append(("namespace", live["namespace"]))
+    lc = live.get("logConfiguration")
+    if lc:
+        if set(lc) - {"logDriver", "options", "secretOptions"} or lc.get("secretOptions"):
+            raise Unresolvable("Service Connect log configuration with secret options")
+        lcb: list = [("log_driver", lc["logDriver"])]
+        if lc.get("options"):
+            lcb.append(("options", dict(lc["options"])))
+        b.append(("log_configuration", Block(lcb)))
+    for svc in live.get("services") or []:
+        if set(svc) - _SC_SERVICE_KEYS:
+            raise Unresolvable(
+                f"Service Connect service keys not supported: {sorted(set(svc) - _SC_SERVICE_KEYS)}"
+            )
+        sb: list = [("port_name", svc["portName"])]
+        if svc.get("discoveryName"):
+            sb.append(("discovery_name", svc["discoveryName"]))
+        if svc.get("ingressPortOverride") is not None:
+            sb.append(("ingress_port_override", _int(svc["ingressPortOverride"])))
+        for ca in svc.get("clientAliases") or []:
+            cab: list = [("port", _int(ca["port"]))]
+            if ca.get("dnsName"):
+                cab.append(("dns_name", ca["dnsName"]))
+            sb.append(("client_alias", Block(cab)))
+        to = svc.get("timeout")
+        if to:
+            tob: list = []
+            if to.get("idleTimeoutSeconds") is not None:
+                tob.append(("idle_timeout_seconds", _int(to["idleTimeoutSeconds"])))
+            if to.get("perRequestTimeoutSeconds") is not None:
+                tob.append(("per_request_timeout_seconds", _int(to["perRequestTimeoutSeconds"])))
+            sb.append(("timeout", Block(tob)))
+        b.append(("service", Block(sb)))
+    return Block(b)
+
+
 @mapper("AWS::ECS::Service")
 def ecs_service(ctx: Ctx) -> TfSpec:
     """aws_ecs_service, import id ``<cluster-name>/<service-name>``.
@@ -479,9 +543,7 @@ def ecs_service(ctx: Ctx) -> TfSpec:
     ``availabilityZoneRebalancing``.
     """
     _only(ctx, _SVC_PROPS)
-    sc = ctx.r("ServiceConnectConfiguration", None)
-    if sc and _bool(sc.get("Enabled", False)):
-        raise Unresolvable("Service Connect is blocked in v0.1")
+    sc_block = _service_connect(ctx)
 
     cluster, name = _service_names(ctx)
     svc_name = ctx.r("ServiceName", None)
@@ -549,6 +611,9 @@ def ecs_service(ctx: Ctx) -> TfSpec:
         )
         body.append(("alarms", ab))
 
+    if sc_block is not None:
+        body.append(("service_connect_configuration", sc_block))
+
     net = ctx.r("NetworkConfiguration", None)
     if net:
         aws = net.get("AwsvpcConfiguration")
@@ -587,7 +652,8 @@ def ecs_service(ctx: Ctx) -> TfSpec:
     _add_tags(ctx, body)
     body.append(_lifecycle_ignore("task_definition", "desired_count"))
     spec = TfSpec("aws_ecs_service", f"{cluster}/{name}", body)
-    if sc is not None:
+    tmpl_sc = ctx.r("ServiceConnectConfiguration", None)
+    if tmpl_sc is not None and sc_block is None:
         spec.notes.append("ServiceConnectConfiguration {Enabled: false} is not emitted")
     return spec
 
@@ -711,7 +777,32 @@ _REDIRECT_KEYS = (
 )
 
 
-def _action_block(a: dict[str, Any]) -> Block:
+def _forward_config(live_action: dict[str, Any] | None) -> list:
+    """The ``forward`` block AWS reports alongside a single-target-group action.
+
+    DescribeListeners returns ``ForwardConfig`` (target group, weight, stickiness) even when the
+    template only set ``TargetGroupArn``; the provider imports it, so it must be declared to
+    keep the first plan import-only (found in the AWS end-to-end run).
+    """
+    fc = (live_action or {}).get("ForwardConfig")
+    if not fc:
+        return []
+    fb: list = []
+    for tg in fc.get("TargetGroups") or []:
+        tgb: list = [("arn", tg["TargetGroupArn"])]
+        if "Weight" in tg:
+            tgb.append(("weight", _int(tg["Weight"])))
+        fb.append(("target_group", Block(tgb)))
+    st = fc.get("TargetGroupStickinessConfig")
+    # Disabled stickiness is reported as {Enabled: false, DurationSeconds: 0}; the provider
+    # requires duration in 1-604800, so the block is declared only when stickiness is on.
+    if st is not None and st.get("Enabled"):
+        sb: list = [("enabled", True), ("duration", _int(st.get("DurationSeconds", 0)))]
+        fb.append(("stickiness", Block(sb)))
+    return [("forward", Block(fb))]
+
+
+def _action_block(a: dict[str, Any], live_action: dict[str, Any] | None = None) -> Block:
     extra = set(a) - _ACTION_KEYS
     if extra:
         raise Unresolvable(f"listener action keys not supported: {sorted(extra)}")
@@ -723,6 +814,7 @@ def _action_block(a: dict[str, Any]) -> Block:
         if "TargetGroupArn" not in a:
             raise Unresolvable("weighted forward actions are not supported in v0.1")
         body.append(("target_group_arn", a["TargetGroupArn"]))
+        body += _forward_config(live_action)
     elif atype == "redirect":
         rc = a["RedirectConfig"]
         rb: list = [(tf, str(rc[k])) for k, tf in _REDIRECT_KEYS if k in rc]
@@ -767,8 +859,11 @@ def lb_listener(ctx: Ctx) -> TfSpec:
     alpn = ctx.r("AlpnPolicy", None)
     if alpn:
         body.append(("alpn_policy", _one(alpn, "AlpnPolicy")))
-    for a in ctx.r("DefaultActions"):
-        body.append(("default_action", _action_block(a)))
+    live_actions = ctx.live.get("DefaultActions") or []
+    for i, a in enumerate(ctx.r("DefaultActions")):
+        live_action = live_actions[i] if i < len(live_actions) else None
+        body.append(("default_action", _action_block(a, live_action)))
+    _add_tags(ctx, body)
     return TfSpec("aws_lb_listener", ctx.pid, body)
 
 
