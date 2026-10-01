@@ -261,7 +261,7 @@ def render(
             f"retain-patches/stackset-{ss_name}.yml",
             f"op=$(aws cloudformation update-stack-set --stack-set-name {q(ss_name)} "
             f"--template-body file://retain-patches/stackset-{ss_name}.yml "
-            f"--parameters {_params(sorted(ss.parameters))} "
+            + (f"--parameters {_params(sorted(ss.parameters))} " if ss.parameters else "")
             + (f"--capabilities {caps} " if caps else "")
             + f"--administration-role-arn {q(ss.administration_role_arn)} "
             f"--execution-role-name {q(ss.execution_role_name)} "
@@ -291,8 +291,8 @@ def render(
         cmds = [
             f"rm -f cs-{s.name}.json cs-{s.name}.nested-*.json",
             f"aws cloudformation create-change-set --stack-name {q(s.name)} "
-            f"--change-set-name {cs} --template-url {q(p.url)} --include-nested-stacks "
-            f"--parameters {_params(sorted(s.parameters))}"
+            f"--change-set-name {cs} --template-url {q(p.url)} --include-nested-stacks"
+            + (f" --parameters {_params(sorted(s.parameters))}" if s.parameters else "")
             + (f" --capabilities {caps}" if caps else ""),
             f"aws cloudformation wait change-set-create-complete --stack-name {q(s.name)} "
             f"--change-set-name {cs} || true   # an empty change set ends FAILED; check decides",
