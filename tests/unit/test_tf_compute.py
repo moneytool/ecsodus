@@ -228,7 +228,8 @@ def test_service_without_live_desired_count_is_blocked(svc):
     blocked(run(inv, stack, "Service"), "desiredCount")
 
 
-def test_service_connect_imported_from_live_primary_deployment():
+@pytest.mark.parametrize("unsupported", ["tls", "testTrafficRules", "unknownTimeout"])
+def test_service_connect_imported_from_live_primary_deployment(unsupported: str):
     """ADR-0011: Copilot enables Service Connect by default; adopt-in-place imports it as is."""
     inv, stack = load("workloads/svc-prod.stack.yml", stack_name="my-app-prod-fe", env="prod")
     add_env_exports(inv, env="prod")
@@ -245,6 +246,7 @@ def test_service_connect_imported_from_live_primary_deployment():
                 "portName": "target",
                 "discoveryName": "fe-sc",
                 "clientAliases": [{"port": 80, "dnsName": "fe"}],
+                "timeout": {"idleTimeoutSeconds": 60, "perRequestTimeoutSeconds": 0},
             }
         ],
         "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": "/copilot/x"}},
@@ -253,12 +255,26 @@ def test_service_connect_imported_from_live_primary_deployment():
         "desiredCount": 3,
         "deployments": [{"status": "PRIMARY", "serviceConnectConfiguration": sc}],
     }
-    text = render(spec_of(run(inv, stack, "Service")))
+    spec = spec_of(run(inv, stack, "Service"))
+    text = render(spec)
     assert "service_connect_configuration {" in text
     assert 'namespace = "prod.my-app.local"' in text
     assert 'discovery_name = "fe-sc"' in text and "client_alias {" in text
-    sc["services"][0]["tls"] = {"issuerCertificateAuthority": {}}
-    blocked(run(inv, stack, "Service"), "Service Connect service keys not supported")
+    config = block_args(args(spec)["service_connect_configuration"])
+    timeout = block_args(block_args(config["service"])["timeout"])
+    assert timeout == {"idle_timeout_seconds": 60, "per_request_timeout_seconds": 0}
+    if unsupported == "tls":
+        sc["services"][0]["tls"] = {"issuerCertificateAuthority": {}}
+        reason = "Service Connect service keys not supported"
+    elif unsupported == "testTrafficRules":
+        sc["services"][0]["clientAliases"][0]["testTrafficRules"] = {
+            "header": {"name": "x-test", "value": "canary"}
+        }
+        reason = "Service Connect client alias keys not supported"
+    else:
+        sc["services"][0]["timeout"] = {"idleTimeoutSeconds": 60, "unknownTimeout": 30}
+        reason = "Service Connect timeout keys not supported"
+    blocked(run(inv, stack, "Service"), reason)
 
 
 def test_backend_service_enable_execute_command():

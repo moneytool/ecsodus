@@ -222,6 +222,47 @@ def test_runbook_blocks_stop_at_a_failing_check(generated: Path, tmp_path: Path)
     assert "execute-change-set" not in calls
 
 
+@pytest.mark.parametrize("remove_stack", [False, True])
+def test_runbook_regeneration_ignores_stale_output(
+    generated: Path, tmp_path: Path, remove_stack: bool
+) -> None:
+    import re
+    import shlex
+    import sys
+
+    inv_path = tmp_path / "inventory.json"
+    assert (
+        main(["generate", str(inv_path), "--out", str(generated / "regen"), "--patch-bucket", "b"])
+        == 0
+    )
+    original_manifest = (generated / "ecsodus-manifest.json").read_bytes()
+    if remove_stack:
+        inv = app()
+        del inv.stacks["demo-infrastructure-roles"]
+        inv.save(inv_path)
+    rb = (generated / "RUNBOOK.md").read_text()
+    block = next(b for b in re.findall(r"```bash\n(.*?)```", rb, re.S) if "for f in" in b)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "ecsodus"
+    stub.write_text(
+        '#!/bin/sh\nif [ "$1" = inventory ]; then exit 0; fi\n'
+        f'exec {shlex.quote(sys.executable)} -m ecsodus.cli "$@"\n'
+    )
+    stub.chmod(0o755)
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    # Running the generated block twice must never reuse files from an earlier comparison.
+    for _ in range(2):
+        res = subprocess.run(
+            ["bash", "-c", block], cwd=generated, env=env, capture_output=True, text=True
+        )
+        assert (res.returncode == 0) is not remove_stack, res.stdout + res.stderr
+    assert len(list(generated.glob("regen.*"))) == 2
+    assert (generated / "regen" / "demo-infrastructure-roles.tf").exists()
+    if remove_stack:
+        assert (generated / "ecsodus-manifest.json").read_bytes() == original_manifest
+
+
 @pytest.mark.parametrize("total,bad,ok", [("1", "0", True), ("0", "0", False), ("2", "1", False)])
 def test_stackset_wait_requires_results(tmp_path: Path, total: str, bad: str, ok: bool) -> None:
     from ecsodus.emit.runbook import _wait_stackset_op
