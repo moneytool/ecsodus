@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Verified
+- AWS end-to-end run on 2026-09-30 against a real Copilot v1.34.1 app: 44/44 pure imports, all
+  Copilot stacks torn down with zero data loss, and PLAN §6 questions 1–3 answered
+  (`docs/e2e/2026-09-30-aws-e2e.md`). The real-AWS defects it found are fixed.
+
 ### Added
 - Approved plan (r4) after four rounds of three-model council review (`docs/PLAN.md`,
   `docs/council/`).

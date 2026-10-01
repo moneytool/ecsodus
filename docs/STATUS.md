@@ -1,4 +1,4 @@
-# Status: v0.1.0rc1 (2026-09-30)
+# Status: v0.1.0rc1 + AWS end-to-end passed (2026-09-30)
 
 ## Done
 
@@ -27,25 +27,28 @@
   green.
 - **Repository.** It is **private** at `github.com/moneytool/ecsodus`.
 
-## Not done
+## AWS end-to-end: passed (2026-09-30)
 
-**The real AWS end-to-end run** (PLAN §6). This is deliberate: the maintainer chose offline-only
-testing on 2026-09-29. The run deploys a Copilot sample with an Aurora addon and a custom domain
-into the sandbox account, runs the whole runbook, and checks that sentinel data survives. It
-would cost about $1–3 and needs a fresh explicit yes.
+A real Copilot v1.34.1 app (env + Load Balanced Web Service + DynamoDB and S3 addons, 5 stacks)
+went through every runbook step in the sandbox account:
 
-Until it passes:
-- The runbook's teardown (step 5) is gated behind `--i-understand-teardown-is-unverified`.
-- Nothing is published: the repo stays private and nothing goes to PyPI (ADR-0008, ADR-0009).
+- 44/44 pure imports, then 44/44 no-op plans before and after teardown.
+- All Copilot stacks and the StackSet were deleted.
+- The service kept serving HTTP 200, and the sentinel data survived.
+- Everything was removed afterwards.
 
-The run answers these open questions:
-1. Does `DeletionPolicy: Retain` on a `Custom::*` resource stop its Delete handler from running?
-   If not, the runbook switches to the emitted neutralizer.
-2. How is a policy-only change set reported? If it is treated as a no-op, the runbook switches to
-   the Metadata fallback.
-3. Does a patched nested stack produce `Dynamic` entries in its parent's change set? If so,
-   `--allow-nested-dynamic` handles it.
-4. Does the shared ACM validation CNAME survive?
+Report: [e2e/2026-09-30-aws-e2e.md](e2e/2026-09-30-aws-e2e.md).
+
+PLAN §6 questions 1–3 are answered: Retain stops custom-resource Delete handlers, policy-only
+change sets are applied, and nested patches produce no Dynamic entries. Question 4 (a custom
+domain and ACM certificate) was not covered.
+
+## Open decisions for the maintainer
+
+1. **Teardown gate.** Should step 5 stay behind `--i-understand-teardown-is-unverified`? The gate
+   could be lifted now, or kept until a custom-domain run.
+2. **Publishing.** Making the repo public and releasing to PyPI need the maintainer's decision
+   (ADR-0009).
 
 ## Known limitations (fail-closed, documented)
 
@@ -60,6 +63,6 @@ The run answers these open questions:
 
 ## Next
 
-1. The AWS end-to-end run, which needs approval. Then remove the teardown gate, tag `v0.1.0`,
-   decide on publishing, release to PyPI and write the launch posts.
+1. Decide on the teardown gate and on publishing. Then tag `v0.1.0`, release to PyPI and
+   write the launch posts.
 2. v0.2: App Runner, with a rebuild-in-parallel mode.

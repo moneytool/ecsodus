@@ -52,6 +52,16 @@ internals, and Copilot first.
 
 ## Questions only a real AWS run can settle (PLAN §6)
 
+**Answered by the 2026-09-30 end-to-end run** ([report](../e2e/2026-09-30-aws-e2e.md)):
+1. Yes, Retain suppresses the custom-resource Delete handler.
+2. A policy-only change is reported as `Modify`, with `Scope: DeletionPolicy` and
+   `UpdateReplacePolicy`, and it is applied.
+3. No `Dynamic` entries appear in the parent.
+4. Not tested (no custom domain).
+5. Not needed (App Runner is v0.2).
+
+The original questions:
+
 1. Does `DeletionPolicy: Retain` on a `Custom::*` resource stop CloudFormation from invoking its
    Delete handler? If not, the runbook uses the neutralizer.
 2. How does a change set that only changes deletion policies show up, and is it applied? If it

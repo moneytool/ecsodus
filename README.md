@@ -22,7 +22,8 @@ Terraform imports the resources exactly as they run today, and no traffic moves.
 **retain patches** so that no stack delete can remove anything, and a step-by-step runbook with a
 machine check before every mutating step.
 
-> **Status: v0.1.0rc1, private.** The tool is feature-complete for v0.1 and tested offline
+> **Status: v0.1.0rc1, private.** Feature-complete for v0.1, tested offline, and passed a real AWS
+> end-to-end run on 2026-09-30 (see docs/e2e/). Originally it was tested offline
 > against real Copilot-generated templates. Teardown (runbook step 5) is gated behind a flag
 > until a real AWS end-to-end run confirms two CloudFormation behaviours (see
 > [docs/PLAN.md §6](docs/PLAN.md)).
@@ -72,6 +73,7 @@ environments.
 ## Documentation
 
 - [Project status](docs/STATUS.md): what is done and what is pending
+- [AWS end-to-end report](docs/e2e/2026-09-30-aws-e2e.md): the real run (passed)
 - [Worked example](docs/examples/): REPORT.md and RUNBOOK.md for a real Copilot app
 - [Quickstart](docs/guides/quickstart.md)
 - [How it works](docs/guides/how-it-works.md): fates, hand-off, retain patches and the checks
