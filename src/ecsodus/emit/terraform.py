@@ -247,6 +247,6 @@ def write_project(plan: MigrationPlan, patches: PatchSet, out: Path) -> list[Pat
         "# Secret-bearing ecsodus artifacts (PLAN §2.2). The *.tf files contain plaintext\n"
         "# task-definition environment values copied from your stacks: review before committing.\n"
         "inventory*.json\nplan*.json\n*.plan\nstate*.txt\n*.tfstate*\n.terraform/\n"
-        "backend.hcl\nretain-patches/\ncs-*.json\nstackset-current.yml\nregen/\n",
+        "backend.hcl\nretain-patches/\ncs-*.json\nstackset-current.yml\nregen/\nregen.*/\n",
     )
     return written
