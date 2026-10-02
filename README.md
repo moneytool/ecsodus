@@ -118,6 +118,8 @@ environments.
 [how to migrate AWS Copilot to Terraform](https://moneytool.github.io/ecsodus/migrate-copilot-to-terraform/)
 and the [FAQ](https://moneytool.github.io/ecsodus/faq/).
 
+- [Deleting your AWS Copilot stacks can delete your database. Here's why.](https://dev.to/moneytool/deleting-your-aws-copilot-stacks-can-delete-your-database-heres-why-pen): the four traps, explained (article)
+- [Questions or a Copilot app ecsodus can't handle yet?](https://github.com/moneytool/ecsodus/discussions/18) Tell us in Discussions
 - [Project status](docs/STATUS.md): what is done and what is pending
 - [AWS end-to-end report](docs/e2e/2026-09-30-aws-e2e.md): the real run (passed)
 - [Worked example](docs/examples/): REPORT.md and RUNBOOK.md for a real Copilot app
