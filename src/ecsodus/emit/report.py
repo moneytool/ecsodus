@@ -5,6 +5,11 @@ The report never contains environment values or secret values.
 
 from __future__ import annotations
 
+from html import escape
+
+from markdown import Markdown, markdown
+from markdown.extensions import Extension
+
 from ecsodus import __version__
 from ecsodus.mappers.fates import (
     BLOCKED,
@@ -162,3 +167,64 @@ def render(plan: MigrationPlan) -> str:
             w(f"- unavailable: {u}")
         w("")
     return "\n".join(out) + "\n"
+
+
+class _EscapeHtml(Extension):
+    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+        md.preprocessors.deregister("html_block")
+        md.inlinePatterns.deregister("html")
+
+
+def render_html(plan: MigrationPlan) -> str:
+    """Render the readiness report as a standalone HTML document."""
+    title = escape(f"Migration readiness: Copilot app {plan.inventory.app}")
+    source = render(plan)
+    source = source.replace("<b>without</b>", "without")
+    source = source.replace("<details><summary>", "**")
+    source = source.replace("</summary>", "**\n")
+    source = source.replace("</details>", "")
+    body = markdown(source, extensions=["tables", _EscapeHtml()])
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <style>
+    body {{
+      font-family: system-ui, sans-serif;
+      line-height: 1.5;
+      margin: 0;
+      color: #222;
+      background: #fff;
+    }}
+    main {{
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+    }}
+    th, td {{
+      border: 1px solid #ddd;
+      padding: 0.5rem;
+      text-align: left;
+      vertical-align: top;
+    }}
+    code {{
+      overflow-wrap: anywhere;
+    }}
+    details {{
+      margin: 1rem 0;
+    }}
+  </style>
+</head>
+<body>
+<main>
+{body}
+</main>
+</body>
+</html>
+"""
