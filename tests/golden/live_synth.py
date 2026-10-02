@@ -34,10 +34,18 @@ App layout (app ``my-app``, env ``test``):
 * ``my-app-test-fe-AddonsStack-1ABCDEFGHIJKL``: its nested addons stack, either the S3 bucket +
   DynamoDB table render (``addons="s3-ddb"``) or the Aurora Serverless v2 render
   (``addons="aurora"``).
+* ``my-app-test-dogworker``: Worker Service (the worker-test render: an events queue and four
+  topic queues with their SNS subscriptions, five topics of its own, the backlog-per-task
+  Lambda with its every-minute Events rule, queue-depth autoscaling, rollback alarms, Service
+  Connect, and two EFS volumes from a file system another stack exports as
+  ``stack-fs-12345``). Copilot uploads custom-resource code at deploy time, so the deployed
+  template's Lambdas carry ``Code`` (S3) that the render lacks; it is added here.
 """
 
 from __future__ import annotations
 
+import json
+import zlib
 from typing import Any
 
 from ecsodus import cfn
@@ -701,7 +709,7 @@ def env_live(inv: Inventory, env: Stack) -> dict[str, dict[str, Any]]:
     return live
 
 
-def task_definition_live(inv: Inventory, stack: Stack) -> dict[str, Any]:
+def task_definition_live(inv: Inventory, stack: Stack, arn: str = TD_ARN) -> dict[str, Any]:
     """DescribeTaskDefinition as ECS returns it for the deployed template (plus its tags)."""
     props = _resolved_props(inv, stack, "TaskDefinition")
     defs = cfn_to_ecs_api(props["ContainerDefinitions"])
@@ -715,7 +723,7 @@ def task_definition_live(inv: Inventory, stack: Stack) -> dict[str, Any]:
         d.setdefault("volumesFrom", [])
         d.setdefault("systemControls", [])
     return {
-        "taskDefinitionArn": TD_ARN,
+        "taskDefinitionArn": arn,
         "family": props["Family"],
         "revision": 7,
         "status": "ACTIVE",
@@ -727,7 +735,10 @@ def task_definition_live(inv: Inventory, stack: Stack) -> dict[str, Any]:
         "compatibilities": ["EC2", "FARGATE"],
         "executionRoleArn": props["ExecutionRoleArn"],
         "taskRoleArn": props["TaskRoleArn"],
-        "volumes": [{"name": v["Name"], "host": {}} for v in props.get("Volumes", [])],
+        "volumes": [
+            cfn_to_ecs_api(v) if "EFSVolumeConfiguration" in v else {"name": v["Name"], "host": {}}
+            for v in props.get("Volumes", [])
+        ],
         "tags": api_tags(tag_map(inv, stack, "TaskDefinition"), lower=True),
     }
 
@@ -980,6 +991,270 @@ def aurora_live(inv: Inventory, addons: Stack) -> dict[str, dict[str, Any]]:
     }
 
 
+# -- Worker Service ----------------------------------------------------------------------------
+WORKER = "dogworker"
+WORKER_STACK = f"{APP}-{ENV}-{WORKER}"
+WORKER_STACK_ID = _stack_arn(WORKER_STACK, "11111111-aaaa-4bbb-8ccc-000000000004")
+EFS_EXPORT = "stack-fs-12345"
+SHARED_FS = "fs-0a1b2c3d4e5f6a7b9"
+WORKER_TD_ARN = f"arn:aws:ecs:{ARN}:task-definition/{WORKER_STACK}:3"
+WORKER_SVC_NAME = f"{WORKER_STACK}-Service-Ab1Cd2Ef3Gh4"
+WORKER_SVC_ARN = f"arn:aws:ecs:{ARN}:service/{CLUSTER}/{WORKER_SVC_NAME}"
+BACKLOG_FN = f"{WORKER_STACK}-BacklogPerTaskCalculatorF-Kq7Zr2"
+BACKLOG_RULE = f"{WORKER_STACK}-BacklogPerTaskScheduledRule-1QAZ2WSX"
+BACKLOG_SID = f"{WORKER_STACK}-PermissionToInvokeBacklogPerTask-3EDC4RFV"
+EVENTS_KEY = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+CUSTOM_RESOURCE_CODE = {  # what `copilot deploy` writes into each Lambda's Code
+    "DynamicDesiredCountFunction": "dynamicdesiredcountfunction",
+    "BacklogPerTaskCalculatorFunction": "backlogpertaskcalculatorfunction",
+    "EnvControllerFunction": "envcontrollerfunction",
+}
+CODE_BUCKET = f"stackset-{APP}-infrastru-pipelinebuiltartifactbuc-1a2b3c4d5e6f"
+WORKER_PARAMS = {
+    "ArtifactKeyARN": f"arn:aws:kms:{ARN}:key/2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+    "ContainerImage": f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/{APP}/{WORKER}@sha256:"
+    "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+}
+_QUEUES = {  # logical id -> FIFO
+    "EventsQueue": False,
+    "DeadLetterQueue": False,
+    "dogsvcgiveshuskiesEventsQueue": False,
+    "mytopicmytopicfifoEventsQueue": True,
+    "yourtopicyourtopicfifoEventsQueue": True,
+    "nonfifotopicnonfifotopicEventsQueue": False,
+}
+_SUBSCRIPTIONS = (
+    "dogsvcgivesdogsSNSTopicSubscription",
+    "dogsvcgiveshuskiesSNSTopicSubscription",
+    "mytopicmytopicfifoSNSTopicSubscription",
+    "yourtopicyourtopicfifoSNSTopicSubscription",
+    "nonfifotopicnonfifotopicSNSTopicSubscription",
+)
+_WORKER_ROLES = (
+    "ExecutionRole",
+    "TaskRole",
+    "DynamicDesiredCountFunctionRole",
+    "AutoScalingRole",
+    "BacklogPerTaskCalculatorRole",
+    "EnvControllerRole",
+)
+
+
+def _with_lambda_code(text: str) -> str:
+    """The deployed template: Copilot fills each custom-resource Lambda's ``Code`` with the S3
+    object it uploaded (internal/pkg/deploy/cloudformation, ``CustomResources``)."""
+    for lid, folder in CUSTOM_RESOURCE_CODE.items():
+        head = f"  {lid}:\n"
+        start = text.index(head)
+        props = text.index("    Properties:\n", start) + len("    Properties:\n")
+        code = (
+            "      Code:\n"
+            f"        S3Bucket: {CODE_BUCKET}\n"
+            f"        S3Key: manual/scripts/custom-resources/{folder}/"
+            "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9.zip\n"
+        )
+        text = text[:props] + code + text[props:]
+    return text
+
+
+def worker_ids(inv: Inventory, stack: Stack) -> dict[str, str]:
+    r = Resolver(inv, stack)
+    body = cfn.load(stack.template_body)["Resources"]
+    ids: dict[str, str] = {
+        "LogGroup": f"/copilot/{WORKER_STACK}",
+        "TaskDefinition": WORKER_TD_ARN,
+        "DynamicDesiredCountAction": f"{WORKER_STACK}-DynamicDesiredCountAction-5TGB6YHN",
+        "DynamicDesiredCountFunction": f"{WORKER_STACK}-DynamicDesiredCountFunct-Mn8Bv4",
+        "AutoScalingTarget": f"service/{CLUSTER}/{WORKER_SVC_NAME}|ecs:service:DesiredCount|ecs",
+        "BacklogPerTaskCalculatorLogGroup": f"/aws/lambda/{BACKLOG_FN}",
+        "BacklogPerTaskCalculatorFunction": BACKLOG_FN,
+        "BacklogPerTaskScheduledRule": BACKLOG_RULE,
+        "PermissionToInvokeBacklogPerTaskCalculatorLambda": BACKLOG_SID,
+        "Service": WORKER_SVC_ARN,
+        "EventsKMSKey": EVENTS_KEY,
+        "EnvControllerAction": f"{WORKER_STACK}-EnvControllerAction-7UJM8IK9",
+        "EnvControllerFunction": f"{WORKER_STACK}-EnvControllerFunction-Pq1Ws3",
+    }
+    for lid in _WORKER_ROLES:
+        ids[lid] = f"{WORKER_STACK}-{lid}-{zlib.crc32(lid.encode()):010d}"[:64]
+    sqs = f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}"
+    for i, (lid, fifo) in enumerate(_QUEUES.items()):
+        ids[lid] = f"{sqs}/{WORKER_STACK}-{lid}-1A2B3C4D5E6F{i}" + (".fifo" if fifo else "")
+    for lid, b in body.items():
+        rtype = b["Type"]
+        if rtype == "AWS::SQS::QueuePolicy":
+            ids[lid] = f"{WORKER_STACK}-{lid}-9OL0P1AZ"
+        elif rtype == "AWS::SNS::Topic":
+            name = r.resolve(b["Properties"]["TopicName"])
+            ids[lid] = f"arn:aws:sns:{ARN}:{name}"
+        elif rtype == "AWS::SNS::TopicPolicy":
+            ids[lid] = f"{WORKER_STACK}-{lid}-2WSX3EDC"
+        elif rtype == "AWS::CloudWatch::Alarm":
+            ids[lid] = r.resolve(b["Properties"]["AlarmName"])
+        elif rtype == "AWS::ApplicationAutoScaling::ScalingPolicy":
+            ids[lid] = (
+                f"arn:aws:autoscaling:{ARN}:scalingPolicy:0a1b2c3d-{len(ids):04d}-4e5f-8a9b-"
+                f"0c1d2e3f4a5b:resource/ecs/service/{CLUSTER}/{WORKER_SVC_NAME}:policyName/{lid}"
+            )
+    return ids
+
+
+def worker_live(inv: Inventory, stack: Stack) -> dict[str, dict[str, Any]]:
+    """Live reads for the worker, after its physical ids are placed."""
+    resolver = Resolver(inv, stack)
+    body = cfn.load(stack.template_body)["Resources"]
+    raw = body["Service"]["Properties"]
+    dc = resolver.resolve(raw["DeploymentConfiguration"])
+    sc = resolver.resolve(raw["ServiceConnectConfiguration"])
+    pid = {r.logical_id: r.physical_id or "" for r in stack.resources}
+    task_count = int(stack.parameters["TaskCount"])
+    live: dict[str, dict[str, Any]] = {
+        WORKER_SVC_ARN: {
+            "serviceArn": WORKER_SVC_ARN,
+            "serviceName": WORKER_SVC_NAME,
+            "clusterArn": CLUSTER_ARN,
+            "status": "ACTIVE",
+            "desiredCount": task_count,
+            "runningCount": task_count,
+            "pendingCount": 0,
+            "platformVersion": "LATEST",
+            "platformFamily": "Linux",
+            "taskDefinition": WORKER_TD_ARN,
+            "capacityProviderStrategy": [
+                {"capacityProvider": "FARGATE_SPOT", "weight": 1, "base": 0},
+                {"capacityProvider": "FARGATE", "weight": 0, "base": 5},
+            ],
+            "deploymentConfiguration": {
+                "deploymentCircuitBreaker": {"enable": True, "rollback": True},
+                "maximumPercent": dc["MaximumPercent"],
+                "minimumHealthyPercent": dc["MinimumHealthyPercent"],
+                "alarms": {
+                    "alarmNames": dc["Alarms"]["AlarmNames"],
+                    "enable": True,
+                    "rollback": True,
+                },
+            },
+            "deployments": [
+                {
+                    "status": "PRIMARY",
+                    "taskDefinition": WORKER_TD_ARN,
+                    "serviceConnectConfiguration": {
+                        "enabled": True,
+                        "namespace": sc["Namespace"],
+                        "logConfiguration": {
+                            "logDriver": "awslogs",
+                            "options": dict(sc["LogConfiguration"]["Options"]),
+                        },
+                    },
+                }
+            ],
+            "loadBalancers": [],
+            "serviceRegistries": [],
+            "networkConfiguration": {
+                "awsvpcConfiguration": {
+                    "subnets": PUBLIC_SUBNETS,
+                    "securityGroups": [SG_ENV],
+                    "assignPublicIp": "ENABLED",
+                }
+            },
+            "schedulingStrategy": "REPLICA",
+            "enableECSManagedTags": False,
+            "propagateTags": "SERVICE",
+            "enableExecuteCommand": True,
+            "availabilityZoneRebalancing": "ENABLED",
+            "tags": api_tags(tag_map(inv, stack, "Service"), lower=True),
+        },
+        pid["AutoScalingTarget"]: {
+            "ServiceNamespace": "ecs",
+            "ResourceId": f"service/{CLUSTER}/{WORKER_SVC_NAME}",
+            "ScalableDimension": "ecs:service:DesiredCount",
+            "MinCapacity": 1,
+            "MaxCapacity": 10,
+            "RoleARN": f"arn:aws:iam::{ACCOUNT}:role/{pid['AutoScalingRole']}",
+        },
+        EVENTS_KEY: {
+            "KeyId": EVENTS_KEY,
+            "Arn": f"arn:aws:kms:{ARN}:key/{EVENTS_KEY}",
+            "Description": "",
+            "KeyUsage": "ENCRYPT_DECRYPT",
+            "KeySpec": "SYMMETRIC_DEFAULT",
+            "KeyState": "Enabled",
+            "Enabled": True,
+            "Origin": "AWS_KMS",
+            "MultiRegion": False,
+            "KeyRotationEnabled": False,
+            "Policy": json.dumps(_resolved_props(inv, stack, "EventsKMSKey")["KeyPolicy"]),
+        },
+        BACKLOG_FN: {
+            "Tags": tag_map(inv, stack, "BacklogPerTaskCalculatorFunction"),
+            "PolicySids": [BACKLOG_SID],
+        },
+        BACKLOG_RULE: {
+            "Name": BACKLOG_RULE,
+            "Arn": f"arn:aws:events:{ARN}:rule/{BACKLOG_RULE}",
+            "ScheduleExpression": "rate(1 minute)",
+            "State": "ENABLED",
+            "EventBusName": "default",
+            "Targets": [
+                {
+                    "Id": "BacklogPerTaskCalculatorFunctionTrigger",
+                    "Arn": f"arn:aws:lambda:{ARN}:function:{BACKLOG_FN}",
+                }
+            ],
+            "Tags": api_tags(tag_map(inv, stack, "BacklogPerTaskScheduledRule")),
+        },
+    }
+    for lid, retention in (("LogGroup", 30), ("BacklogPerTaskCalculatorLogGroup", 3)):
+        live[pid[lid]] = {"logGroupName": pid[lid], "retentionInDays": retention}
+    for lid in _SUBSCRIPTIONS:
+        props = _resolved_props(inv, stack, lid)
+        attrs = {
+            "SubscriptionArn": pid[lid],
+            "TopicArn": props["TopicArn"],
+            "Protocol": "sqs",
+            "Endpoint": props["Endpoint"],
+            "Owner": ACCOUNT,
+            "PendingConfirmation": "false",
+            "ConfirmationWasAuthenticated": "true",
+            "RawMessageDelivery": "false",
+        }
+        if "FilterPolicy" in props:
+            attrs["FilterPolicy"] = json.dumps(props["FilterPolicy"])
+            attrs["FilterPolicyScope"] = "MessageAttributes"
+        live[pid[lid]] = attrs
+    for lid in _WORKER_ROLES:
+        live[pid[lid]] = _role(inv, stack, lid)
+    return live
+
+
+def add_worker(inv: Inventory) -> Stack:
+    _, worker = inventory_from_template(
+        FIXTURES / "rendered/workloads/worker-test.stack.yml",
+        stack_name=WORKER_STACK,
+        env=ENV,
+        workload=WORKER,
+        workload_type="Worker Service",
+        params=WORKER_PARAMS,
+        app=APP,
+    )
+    worker.template_body = _with_lambda_code(worker.template_body)
+    worker.stack_id = WORKER_STACK_ID
+    worker.tags = _copilot_tags(ENV, WORKER)
+    worker.capabilities = ["CAPABILITY_IAM"]
+    inv.stacks[worker.name] = worker
+    inv.external_exports[EFS_EXPORT] = {"value": SHARED_FS, "stack": "shared-efs"}
+    ids = worker_ids(inv, worker)
+    sub_ids = {}
+    for i, lid in enumerate(_SUBSCRIPTIONS):
+        topic = _resolved_props(inv, worker, lid)["TopicArn"]
+        sub_ids[lid] = f"{topic}:0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c{i:02d}"
+    _place(inv, worker, {**ids, **sub_ids})
+    inv.live.update(worker_live(inv, worker))
+    inv.live[WORKER_TD_ARN] = task_definition_live(inv, worker, WORKER_TD_ARN)
+    inv.workloads.append(Workload(WORKER, "Worker Service", ENV))
+    return worker
+
+
 # -- assembly ----------------------------------------------------------------------------------
 def _place(inv: Inventory, stack: Stack, ids: dict[str, str]) -> None:
     """Give every created resource its physical ID; drop resources whose Condition is false.
@@ -1112,4 +1387,5 @@ def build_app(addons: str = "s3-ddb") -> Inventory:
     inv.live.update((s3_ddb_live if addons == "s3-ddb" else aurora_live)(inv, child))
     child.outputs, child.exports = stack_outputs(inv, child)
     svc.outputs, svc.exports = stack_outputs(inv, svc)
+    add_worker(inv)
     return inv

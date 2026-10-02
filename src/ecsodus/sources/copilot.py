@@ -139,6 +139,7 @@ def inventory(
         inv.stacks[stack.name] = stack
 
     _stackset(clients, inv, app)
+    inv.external_exports = _external_exports(inv, described)
 
     inv.envs = sorted({s.env for s in inv.stacks.values() if s.kind == ENV and s.env})
     keep = set(keep_on_copilot)
@@ -173,6 +174,27 @@ def inventory(
     live_reads.read_live(clients, inv)
     inv.out_of_band = _out_of_band(clients, inv)
     return inv
+
+
+def _external_exports(inv: Inventory, described: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    """Exports of stacks outside the app that its templates name literally.
+
+    Copilot imports its own exports by computed names (``${AppName}-${EnvName}-...``); a
+    literal export name in a template is an external dependency, such as an EFS file system
+    a manifest mounts from another stack. Only those names are kept, never the account's other
+    exports.
+    """
+    ours = {s.stack_id for s in inv.stacks.values()}
+    bodies = "\n".join(s.template_body for s in inv.stacks.values())
+    out: dict[str, dict[str, str]] = {}
+    for d in described:
+        if d["StackId"] in ours:
+            continue
+        for o in d.get("Outputs") or []:
+            name = o.get("ExportName")
+            if name and name in bodies:
+                out[name] = {"value": o.get("OutputValue", ""), "stack": d["StackName"]}
+    return out
 
 
 def _describe_all(cfn: Any, names: list[str]) -> list[dict[str, Any]]:

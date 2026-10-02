@@ -51,6 +51,7 @@ IMPORT_UNREAD: dict[str, tuple[str, ...]] = {
     ),
     "aws_secretsmanager_secret": ("recovery_window_in_days", "force_overwrite_replica_secret"),
     "aws_secretsmanager_secret_rotation": ("rotate_immediately",),
+    "aws_sns_topic_subscription": ("confirmation_timeout_in_minutes", "endpoint_auto_confirms"),
 }
 
 

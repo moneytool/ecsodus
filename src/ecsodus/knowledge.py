@@ -62,8 +62,11 @@ _BACKLOG_PER_TASK: Final[dict[str, Any]] = {
     "delete_behaviour": "none (not a custom resource)",
     "destructive": False,
     "out_of_band": ("CloudWatch EMF metric BacklogPerTask (dimension QueueName)",),
-    "terraform": "aws_lambda_function + aws_cloudwatch_event_rule/_target + aws_lambda_permission",
-    "v01_scope": "blocked",
+    "terraform": (
+        "aws_lambda_function (code ignored after import) + aws_cloudwatch_event_rule/_target + "
+        "aws_lambda_permission: imported, because queue-based scaling stops without it"
+    ),
+    "v01_scope": "in",
 }
 
 _BUCKET_CLEANER: Final[dict[str, Any]] = {
@@ -408,6 +411,13 @@ CUSTOM_RESOURCE_FUNCTIONS: Final[dict[tuple[str, str | None], dict[str, str]]] =
     ("workload", "Scheduled Job"): {
         "EnvControllerFunction": "env-controller.js",
     },
+}
+
+#: Copilot Lambdas that are *not* custom-resource handlers but run the workload (ADR-0014):
+#: logical id -> the workload types that render it. They are imported, never cleaned up.
+RUNTIME_FUNCTIONS: Final[dict[str, tuple[str, ...]]] = {
+    lid: tuple(_BACKLOG_PER_TASK["workload_types"])
+    for lid in _BACKLOG_PER_TASK["function_logical_ids"]
 }
 
 #: Runtime of every custom-resource Lambda in the templates.
