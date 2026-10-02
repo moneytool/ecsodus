@@ -40,6 +40,8 @@ _ARN_TEMPLATES: dict[tuple[str, str], str] = {
     ("AWS::SNS::Topic", "TopicArn"): "{id}",
     ("AWS::SNS::Topic", "TopicName"): "{last_colon}",
     ("AWS::SQS::Queue", "Arn"): "arn:{p}:sqs:{r}:{a}:{last_slash}",
+    ("AWS::SQS::Queue", "QueueName"): "{last_slash}",
+    ("AWS::SQS::Queue", "QueueUrl"): "{id}",
     ("AWS::S3::Bucket", "Arn"): "arn:{p}:s3:::{id}",
     ("AWS::S3::Bucket", "DomainName"): "{id}.s3.amazonaws.com",
     ("AWS::S3::Bucket", "RegionalDomainName"): "{id}.s3.{r}.amazonaws.com",
@@ -66,6 +68,9 @@ _ARN_TEMPLATES: dict[tuple[str, str], str] = {
     ("AWS::ServiceDiscovery::Service", "Arn"): "arn:{p}:servicediscovery:{r}:{a}:service/{id}",
     ("AWS::ECS::Service", "Name"): "{last_slash}",
     ("AWS::Lambda::Function", "Arn"): "arn:{p}:lambda:{r}:{a}:function:{id}",
+    # Rules on the default event bus only (the physical id is the rule name); rules on a custom
+    # bus are refused by the mapper.
+    ("AWS::Events::Rule", "Arn"): "arn:{p}:events:{r}:{a}:rule/{id}",
 }
 
 
@@ -289,6 +294,9 @@ def _import_value(r: Resolver, arg: Any) -> Any:
     for s in r.inv.stacks.values():
         if name in s.exports:
             return s.exports[name]
+    external = r.inv.external_exports.get(name)
+    if external is not None:
+        return external["value"]
     raise Unresolvable(f"ImportValue {name}: export not found in inventory")
 
 

@@ -8,8 +8,8 @@ description: >-
 
 # How to migrate AWS Copilot to Terraform
 
-This guide moves a Copilot application (Load Balanced Web Services, Backend Services, their
-environment and addons) to Terraform **in place**. No traffic moves, and nothing is recreated.
+This guide moves a Copilot application (Load Balanced Web Services, Backend Services, Worker
+Services, their environment and addons) to Terraform **in place**. No traffic moves, and nothing is recreated.
 
 ## 1. Install and inventory (read-only)
 
@@ -60,10 +60,12 @@ Every block in the runbook is fail-fast: if a check fails, the mutation after it
 
 - **Supported in v0.1:**
   - Load Balanced Web Services and Backend Services (including Copilot's default Service Connect)
+  - Worker Services: queues, SNS subscriptions, and the backlog-per-task Lambda that drives their
+    queue-depth autoscaling (imported, not deleted)
   - environments, whether Copilot created the VPC or you imported one
   - addons: Aurora/RDS, DynamoDB, S3
   - the app stack and StackSet
-- **Detected and kept on Copilot** (reported, never dropped): Worker Services, Scheduled Jobs,
+- **Detected and kept on Copilot** (reported, never dropped): Scheduled Jobs,
   Request-Driven Web Services, Static Sites, NLB, CloudFront, sidecars, pipelines, and
   multi-account environments.
 

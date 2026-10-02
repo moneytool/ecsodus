@@ -262,6 +262,23 @@ def _map_stack(
                     result,
                 )
             )
+            for suffix, comp in result.companions:
+                cname = tfmap.tf_name(stack, f"{res.logical_id}_{suffix}")
+                while cname in names:
+                    cname += "_x"
+                names.add(cname)
+                out.append(
+                    ResourcePlan(
+                        stack.name,
+                        f"{res.logical_id}/{suffix}",
+                        res.type,
+                        comp.import_id,
+                        IMPORT,
+                        f"deployed by {res.logical_id}",
+                        f"{comp.tf_type}.{cname}",
+                        comp,
+                    )
+                )
         else:
             out.append(
                 ResourcePlan(

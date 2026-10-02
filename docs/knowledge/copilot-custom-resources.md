@@ -130,8 +130,8 @@ Copilot source.)**
 - **Terraform.** Keep it as `aws_lambda_function` + `aws_cloudwatch_event_rule` +
   `aws_cloudwatch_event_target` + `aws_lambda_permission`, or replace it with a target-tracking
   policy that uses metric math over SQS and ECS metrics **(UNCONFIRMED design option)**.
-- **ecsodus fate.** Worker Service is `blocked` in v0.1 (PLAN §3). In v0.3 this Lambda is
-  load-bearing and cannot simply be `manual-cleanup`.
+- **ecsodus fate.** Imported (ADR-0014): the function (code ignored after import), the rule and
+  its target, and the permission. It is load-bearing, so it is never `manual-cleanup`.
 
 ## bucket-cleaner.js
 

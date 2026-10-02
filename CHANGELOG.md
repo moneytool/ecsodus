@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Worker Services hand off (issue #4, ADR-0014). Their SQS queues, KMS key, SNS subscriptions
+  (`aws_sns_topic_subscription`) and the backlog-per-task calculator that drives queue-depth
+  autoscaling are imported. The calculator is imported, not deleted: `aws_lambda_function`
+  with its code ignored after import, plus `aws_cloudwatch_event_rule`,
+  `aws_cloudwatch_event_target` and `aws_lambda_permission`.
+- One CloudFormation resource can now import several Terraform resources (an Events rule and
+  its targets); each one is checked by the import-only gate.
+- The inventory records exports of stacks outside the app that its templates name literally
+  (for example an EFS file system mounted from another stack), so `Fn::ImportValue` on them
+  resolves.
+- Read-only live reads for Events rules, Lambda tags and policy statement ids, and SNS
+  subscription attributes. `lambda:GetFunction` stays forbidden.
+
+### Fixed
+- An ECS service whose `ServiceRegistries`, `LoadBalancers` or `CapacityProviderStrategy` is
+  `!Ref AWS::NoValue` no longer crashes the planner.
+
 ## [0.1.2] - 2026-09-30
 
 Metadata and documentation only: no code changes since 0.1.1.

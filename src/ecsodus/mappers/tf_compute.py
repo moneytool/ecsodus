@@ -17,11 +17,22 @@ Import ID formats were checked against the provider docs
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from ecsodus.cfn import references as cfn_references
 from ecsodus.emit.hcl import Block, Raw, value
+from ecsodus.knowledge import CUSTOM_RESOURCE_RUNTIME, RUNTIME_FUNCTIONS
 from ecsodus.mappers.resolve import Unresolvable
-from ecsodus.mappers.tfmap import MANUAL_CLEANUP, Ctx, NotImported, TfSpec, _live_tags, mapper
+from ecsodus.mappers.tfmap import (
+    MANUAL_CLEANUP,
+    Ctx,
+    MapResult,
+    NotImported,
+    TfSpec,
+    _live_tags,
+    mapper,
+)
 
 # -- shared helpers -------------------------------------------------------------------------
 
@@ -97,13 +108,144 @@ def _lifecycle_ignore(*attrs: str) -> tuple[str, Block]:
 # -- Lambda (custom-resource handlers) ------------------------------------------------------
 
 
-@mapper("AWS::Lambda::Function", "AWS::Lambda::Permission")
-def lambda_handler(ctx: Ctx) -> NotImported:
-    """Every Lambda in a Copilot stack is a custom-resource handler (PLAN §2.2)."""
-    return NotImported(
-        MANUAL_CLEANUP,
-        "Copilot custom-resource handler: retained by the patch, deleted manually after teardown",
-    )
+_HANDLER = NotImported(
+    MANUAL_CLEANUP,
+    "Copilot custom-resource handler: retained by the patch, deleted manually after teardown",
+)
+
+
+def _runtime_function(ctx: Ctx, logical_id: str) -> bool:
+    """A Copilot Lambda that runs the workload rather than handling a custom resource."""
+    return ctx.stack.workload_type in RUNTIME_FUNCTIONS.get(logical_id, ())
+
+
+@mapper("AWS::Lambda::Function")
+def lambda_function(ctx: Ctx) -> MapResult:
+    """Custom-resource handlers are cleaned up (PLAN §2.2); a runtime function (the Worker
+    Service backlog calculator, ADR-0014) is imported as ``aws_lambda_function``.
+
+    Import id = function name (the physical id). No live keys; tags come from ``ListTags``
+    when the inventory has them. The deployed template's ``Code`` (S3 object Copilot uploaded)
+    is written so the configuration is valid, and ignored: the provider does not read it back,
+    and re-uploading the same code is not an import.
+    """
+    if not _runtime_function(ctx, ctx.resource.logical_id):
+        return _HANDLER
+    _only(
+        ctx,
+        {"Handler", "Timeout", "MemorySize", "Role", "Runtime", "Environment", "Code",
+         "Description", "Tags"},
+    )  # fmt: skip
+    code = ctx.r("Code", None)
+    if not isinstance(code, dict) or set(code) - {"S3Bucket", "S3Key"} or len(code) != 2:
+        raise Unresolvable(f"Code must be an S3Bucket/S3Key object, got {code!r}")
+    runtime = ctx.r("Runtime")
+    body: list = [
+        ("function_name", ctx.pid),
+        ("role", ctx.r("Role")),
+        ("handler", ctx.r("Handler")),
+        ("runtime", runtime),
+        ("s3_bucket", code["S3Bucket"]),
+        ("s3_key", code["S3Key"]),
+    ]
+    for cfn, tf in (("Timeout", "timeout"), ("MemorySize", "memory_size")):
+        if ctx.has(cfn):
+            body.append((tf, _int(ctx.r(cfn))))
+    desc = ctx.r("Description", None)
+    if desc:
+        body.append(("description", desc))
+    variables = (ctx.r("Environment", None) or {}).get("Variables")
+    if variables:
+        env = {str(k): str(v) for k, v in variables.items()}
+        body.append(("environment", Block([("variables", env)])))
+    _add_tags(ctx, body)
+    body.append(_lifecycle_ignore("s3_bucket", "s3_key"))
+    notes = ["code is ignored after import: Copilot uploaded it; Terraform does not manage it"]
+    if runtime == CUSTOM_RESOURCE_RUNTIME:
+        notes.append(
+            f"{runtime} is deprecated by AWS Lambda (create blocked 2027-07-29, update blocked "
+            "2027-08-31): move the function to a supported runtime before then"
+        )
+    return TfSpec("aws_lambda_function", ctx.pid, body, notes=notes)
+
+
+@mapper("AWS::Lambda::Permission")
+def lambda_permission(ctx: Ctx) -> MapResult:
+    """A permission on a runtime function is imported as ``aws_lambda_permission``; one on a
+    custom-resource handler is cleaned up with it.
+
+    Import id ``<function name>/<statement id>``. The physical id is the statement id (older
+    stacks) or ``<function ARN>|<statement id>``. When the inventory read the function's
+    resource policy (``PolicySids`` on the function), the statement must be in it.
+    """
+    fn = ctx.props.get("FunctionName")
+    targets = cfn_references(fn)
+    if not any(_runtime_function(ctx, lid) for lid in targets):
+        return _HANDLER
+    _only(ctx, {"FunctionName", "Action", "Principal", "SourceArn", "SourceAccount"})
+    name = str(ctx.r("FunctionName"))
+    if name.startswith("arn:"):
+        name = name.rsplit(":", 1)[-1]
+    sid = ctx.pid.rsplit("|", 1)[-1]
+    fn_live = ctx.inv.live.get(name, {})
+    if "PolicySids" in fn_live and sid not in fn_live["PolicySids"]:
+        raise Unresolvable(f"statement {sid} is not in the live policy of {name}")
+    body: list = [
+        ("statement_id", sid),
+        ("action", ctx.r("Action")),
+        ("function_name", name),
+        ("principal", ctx.r("Principal")),
+    ]
+    for cfn_key, tf in (("SourceArn", "source_arn"), ("SourceAccount", "source_account")):
+        if ctx.has(cfn_key):
+            body.append((tf, str(ctx.r(cfn_key))))
+    return TfSpec("aws_lambda_permission", f"{name}/{sid}", body)
+
+
+# -- EventBridge ----------------------------------------------------------------------------
+
+
+@mapper("AWS::Events::Rule")
+def events_rule(ctx: Ctx) -> TfSpec:
+    """aws_cloudwatch_event_rule (import id = rule name, the physical id) plus one
+    aws_cloudwatch_event_target per target (import id ``<rule>/<target id>``).
+
+    Default event bus only. Optional live keys (DescribeRule + ListTargetsByRule +
+    ListTagsForResource): ``Targets`` must match the template's targets exactly; ``Tags``.
+    """
+    _only(ctx, {"Name", "Description", "ScheduleExpression", "EventPattern", "State", "Targets"})
+    if "|" in ctx.pid or "/" in ctx.pid:
+        raise Unresolvable(f"rule {ctx.pid} is not on the default event bus")
+    name = ctx.r("Name", ctx.pid)
+    if name != ctx.pid:
+        raise Unresolvable(f"Name {name} != physical id {ctx.pid}")
+    body: list = [("name", name)]
+    desc = ctx.r("Description", None)
+    if desc:
+        body.append(("description", desc))
+    if ctx.has("ScheduleExpression"):
+        body.append(("schedule_expression", ctx.r("ScheduleExpression")))
+    if ctx.has("EventPattern"):
+        body.append(("event_pattern", _json(ctx.r("EventPattern"))))
+    body.append(("state", ctx.r("State", "ENABLED")))
+    _add_tags(ctx, body)
+    targets = ctx.r("Targets", [])
+    live_targets = ctx.live.get("Targets")
+    if live_targets is not None:
+        want = sorted((str(t.get("Id")), str(t.get("Arn"))) for t in targets)
+        have = sorted((str(t.get("Id")), str(t.get("Arn"))) for t in live_targets)
+        if want != have or any(set(t) - {"Id", "Arn"} for t in live_targets):
+            raise Unresolvable(f"live targets {live_targets!r} differ from the template")
+    companions: list[tuple[str, TfSpec]] = []
+    for t in targets:
+        if set(t) - {"Id", "Arn"}:
+            raise Unresolvable(f"target keys not supported: {sorted(set(t) - {'Id', 'Arn'})}")
+        tid = str(t["Id"])
+        tbody: list = [("rule", name), ("target_id", tid), ("arn", str(t["Arn"]))]
+        companions.append(
+            (f"target_{tid}", TfSpec("aws_cloudwatch_event_target", f"{name}/{tid}", tbody))
+        )
+    return TfSpec("aws_cloudwatch_event_rule", name, body, companions=companions)
 
 
 # -- logs, cluster --------------------------------------------------------------------------
@@ -574,7 +716,7 @@ def ecs_service(ctx: Ctx) -> TfSpec:
     launch = ctx.r("LaunchType", None)
     if launch:
         body.append(("launch_type", launch))
-    for cps in ctx.r("CapacityProviderStrategy", []):
+    for cps in ctx.r("CapacityProviderStrategy", []) or []:
         b: list = [("capacity_provider", cps["CapacityProvider"])]
         if "Weight" in cps:
             b.append(("weight", _int(cps["Weight"])))
@@ -636,7 +778,7 @@ def ecs_service(ctx: Ctx) -> TfSpec:
             nb.append(("assign_public_ip", aws["AssignPublicIp"] == "ENABLED"))
         body.append(("network_configuration", Block(nb)))
 
-    for lb in ctx.r("LoadBalancers", []):
+    for lb in ctx.r("LoadBalancers", []) or []:
         if "TargetGroupArn" not in lb:
             raise Unresolvable("classic load balancer attachments are not supported")
         lbb = Block(
@@ -647,7 +789,7 @@ def ecs_service(ctx: Ctx) -> TfSpec:
             ]
         )
         body.append(("load_balancer", lbb))
-    for reg in ctx.r("ServiceRegistries", []):
+    for reg in ctx.r("ServiceRegistries", []) or []:
         rb: list = [("registry_arn", reg["RegistryArn"])]
         if "Port" in reg:
             rb.append(("port", _int(reg["Port"])))
@@ -1333,6 +1475,50 @@ def sns_topic(ctx: Ctx) -> TfSpec:
             body.append((tf, conv(ctx.r(cfn))))
     _add_tags(ctx, body)
     return TfSpec("aws_sns_topic", ctx.pid, body)
+
+
+@mapper("AWS::SNS::Subscription")
+def sns_subscription(ctx: Ctx) -> TfSpec:
+    """aws_sns_topic_subscription, imported by subscription ARN (the physical id).
+
+    Optional live keys (GetSubscriptionAttributes): ``RawMessageDelivery`` and ``FilterPolicy``
+    must agree with the template. ``confirmation_timeout_in_minutes`` and
+    ``endpoint_auto_confirms`` exist only in Terraform: written at their defaults, ignored for
+    the import and hardened after it (RUNBOOK step 4b).
+    """
+    _only(
+        ctx,
+        {"TopicArn", "Protocol", "Endpoint", "FilterPolicy", "FilterPolicyScope",
+         "RawMessageDelivery", "RedrivePolicy"},
+    )  # fmt: skip
+    if not ctx.pid.startswith("arn:"):
+        raise Unresolvable(f"subscription physical id {ctx.pid} is not an ARN")
+    body: list = [
+        ("topic_arn", str(ctx.r("TopicArn"))),
+        ("protocol", ctx.r("Protocol")),
+        ("endpoint", str(ctx.r("Endpoint"))),
+    ]
+    policy = ctx.r("FilterPolicy", None)
+    if policy is not None:
+        if isinstance(policy, str):
+            policy = json.loads(policy)
+        live = ctx.live.get("FilterPolicy")
+        if live is not None and json.loads(live) != policy:
+            raise Unresolvable("live FilterPolicy differs from the template")
+        body.append(("filter_policy", _json(policy)))
+    scope = ctx.r("FilterPolicyScope", None)
+    if scope:
+        body.append(("filter_policy_scope", scope))
+    raw = _bool(ctx.r("RawMessageDelivery", False))
+    live_raw = ctx.live.get("RawMessageDelivery")
+    if live_raw is not None and _bool(live_raw) != raw:
+        raise Unresolvable("live RawMessageDelivery differs from the template")
+    if raw:
+        body.append(("raw_message_delivery", True))
+    if ctx.has("RedrivePolicy"):
+        body.append(("redrive_policy", _json(ctx.r("RedrivePolicy"))))
+    body += [("confirmation_timeout_in_minutes", 1), ("endpoint_auto_confirms", False)]
+    return TfSpec("aws_sns_topic_subscription", ctx.pid, body)
 
 
 @mapper("AWS::SNS::TopicPolicy")

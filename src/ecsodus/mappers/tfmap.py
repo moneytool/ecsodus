@@ -39,6 +39,9 @@ class TfSpec:
     stateful: bool = False
     fidelity: str = "full"  # "full" or "partial" (arguments ecsodus could not cover)
     notes: list[str] = field(default_factory=list)
+    # Further Terraform resources the same CloudFormation resource deploys (an Events rule's
+    # targets): (address suffix, spec). Each is imported alongside the main resource.
+    companions: list[tuple[str, TfSpec]] = field(default_factory=list)
 
 
 @dataclass
