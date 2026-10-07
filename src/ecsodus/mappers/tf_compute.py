@@ -229,7 +229,7 @@ def events_rule(ctx: Ctx) -> TfSpec:
         body.append(("event_pattern", _json(ctx.r("EventPattern"))))
     body.append(("state", ctx.r("State", "ENABLED")))
     _add_tags(ctx, body)
-    targets = ctx.r("Targets", [])
+    targets = ctx.r("Targets", []) or []  # Fn::If with AWS::NoValue resolves to None
     live_targets = ctx.live.get("Targets")
     if live_targets is not None:
         want = sorted((str(t.get("Id")), str(t.get("Arn"))) for t in targets)

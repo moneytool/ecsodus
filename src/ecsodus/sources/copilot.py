@@ -18,6 +18,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from ecsodus.cfn import load as cfn_load
 from ecsodus.model import (
     ADDONS,
     APP,
@@ -176,23 +177,44 @@ def inventory(
     return inv
 
 
+def _literal_imports(node: Any) -> set[str]:
+    """Every literal ``Fn::ImportValue`` argument in a parsed template."""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        for key, val in node.items():
+            if key == "Fn::ImportValue" and isinstance(val, str):
+                found.add(val)
+            else:
+                found |= _literal_imports(val)
+    elif isinstance(node, list):
+        for item in node:
+            found |= _literal_imports(item)
+    return found
+
+
 def _external_exports(inv: Inventory, described: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
-    """Exports of stacks outside the app that its templates name literally.
+    """Exports of stacks outside the app that its templates import by a literal name.
 
     Copilot imports its own exports by computed names (``${AppName}-${EnvName}-...``); a
-    literal export name in a template is an external dependency, such as an EFS file system
-    a manifest mounts from another stack. Only those names are kept, never the account's other
-    exports.
+    literal ``Fn::ImportValue`` name is an external dependency, such as an EFS file system a
+    manifest mounts from another stack. Only exports named exactly by such an import are kept,
+    never the account's other exports. A template that does not parse contributes none (the
+    planner reports it on its own).
     """
     ours = {s.stack_id for s in inv.stacks.values()}
-    bodies = "\n".join(s.template_body for s in inv.stacks.values())
+    wanted: set[str] = set()
+    for s in inv.stacks.values():
+        try:
+            wanted |= _literal_imports(cfn_load(s.template_body))
+        except Exception:  # noqa: BLE001 - unparseable templates are reported by the planner
+            continue
     out: dict[str, dict[str, str]] = {}
     for d in described:
         if d["StackId"] in ours:
             continue
         for o in d.get("Outputs") or []:
             name = o.get("ExportName")
-            if name and name in bodies:
+            if name and name in wanted:
                 out[name] = {"value": o.get("OutputValue", ""), "stack": d["StackName"]}
     return out
 

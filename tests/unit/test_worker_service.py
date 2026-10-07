@@ -195,3 +195,42 @@ def test_external_exports_resolve_import_value(worker):
     assert r.resolve({"Fn::ImportValue": "stack-fs-12345"}) == "fs-0abc"
     # Survives the inventory round trip.
     assert Inventory.from_dict(json.loads(inv.to_json())).external_exports == inv.external_exports
+
+
+CONDITIONAL_RULE = """
+Parameters:
+  Enabled:
+    Type: String
+Conditions:
+  HasTarget: !Equals [!Ref Enabled, "yes"]
+Resources:
+  Rule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(5 minutes)
+      Targets: !If
+        - HasTarget
+        - - Id: Trigger
+            Arn: arn:aws:lambda:us-west-2:123456789012:function:f
+        - !Ref AWS::NoValue
+"""
+
+
+@pytest.mark.parametrize("enabled", ["yes", "no"])
+def test_conditional_targets(tmp_path, enabled: str):
+    """A Targets property switched off with Fn::If/AWS::NoValue imports a targetless rule
+    (review on PR #20: it used to raise TypeError and abort the whole plan)."""
+    from tests.helpers import inventory_from_template
+
+    path = tmp_path / "rule.yml"
+    path.write_text(CONDITIONAL_RULE)
+    inv, stack = inventory_from_template(path, stack_name="s", params={"Enabled": enabled})
+    set_pid(stack, "Rule", "s-Rule-1")
+    spec = spec_of(run(inv, stack, "Rule"))
+    assert len(spec.companions) == (1 if enabled == "yes" else 0)
+    inv.live["s-Rule-1"] = {"Targets": []}
+    result = run(inv, stack, "Rule")
+    if enabled == "yes":
+        blocked(result, "live targets")  # a target the template has, missing live
+    else:
+        assert spec_of(result).companions == []

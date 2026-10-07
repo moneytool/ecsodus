@@ -142,9 +142,28 @@ Outputs:
     Value: not-referenced
     Export:
       Name: shared-other
+  # Names that occur in the app's template but are not imported by it (review on PR #20):
+  # a logical id, a word in a description, and both prefix directions of the real import.
+  LogicalId:
+    Value: rule-export
+    Export:
+      Name: Rule
+  InDescription:
+    Value: described
+    Export:
+      Name: described-export
+  Prefix:
+    Value: prefix
+    Export:
+      Name: shared-fs
+  Extended:
+    Value: extended
+    Export:
+      Name: shared-fs-id-backup
 """
 
 WORKER = """
+Description: Worker that also mentions described-export in prose
 Resources:
   Role:
     Type: AWS::IAM::Role
