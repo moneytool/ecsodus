@@ -395,6 +395,15 @@ def _event_rules(clients: Clients, inv: Inventory, ids: list[str]) -> None:
         inv.live[name] = rule
 
 
+@reader("AWS::StepFunctions::StateMachine")
+def _state_machines(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    sfn = clients("stepfunctions")
+    for arn in ids:
+        sm = _clean(sfn.describe_state_machine(stateMachineArn=arn))
+        sm["tags"] = sfn.list_tags_for_resource(resourceArn=arn).get("tags", [])
+        inv.live[arn] = sm
+
+
 @reader("AWS::SNS::Subscription")
 def _subscriptions(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     sns = clients("sns")

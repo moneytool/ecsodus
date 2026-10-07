@@ -20,6 +20,16 @@ All notable changes to this project are documented here. The format follows
 - Read-only live reads for Events rules, Lambda tags and policy statement ids, and SNS
   subscription attributes. `lambda:GetFunction` stays forbidden.
 
+- Scheduled Jobs hand off (issue #5, ADR-0015): the schedule (`aws_cloudwatch_event_rule` and a
+  target that assumes a role), the Step Functions state machine that runs the task
+  (`aws_sfn_state_machine`, its definition substituted exactly and checked against the live
+  one), its roles, and the EFS access point on the environment's managed file system.
+- Read-only live reads for Step Functions state machines (DescribeStateMachine, tags).
+
+### Changed
+- The docs no longer list sidecars as blocked: task definitions with sidecar containers have
+  always been imported as deployed.
+
 ### Fixed
 - An ECS service whose `ServiceRegistries`, `LoadBalancers` or `CapacityProviderStrategy` is
   `!Ref AWS::NoValue` no longer crashes the planner.

@@ -6,10 +6,13 @@ aws_appautoscaling_policy.dogworker_auto_scaling_policynonfifotopicnonfifotopic_
 aws_appautoscaling_policy.dogworker_auto_scaling_policyyourtopicyourtopicfifo_events_queue	ecs/service/my-app-test-Cluster-Q1w2E3r4T5y6/my-app-test-dogworker-Service-Ab1Cd2Ef3Gh4/ecs:service:DesiredCount/dogworker-BacklogPerTask-my-app-test-dogworker-yourtopicyourtopicfifoEventsQueue-1A2B3C4D5E6F4.fifo
 aws_appautoscaling_target.dogworker_auto_scaling_target	ecs/service/my-app-test-Cluster-Q1w2E3r4T5y6/my-app-test-dogworker-Service-Ab1Cd2Ef3Gh4/ecs:service:DesiredCount
 aws_cloudwatch_event_rule.dogworker_backlog_per_task_scheduled_rule	my-app-test-dogworker-BacklogPerTaskScheduledRule-1QAZ2WSX
+aws_cloudwatch_event_rule.job_rule	my-app-test-job-Rule-1A2S3D4F5G6H
 aws_cloudwatch_event_target.dogworker_backlog_per_task_scheduled_rule_target_backlog_per_task_calculator_function_trigger	my-app-test-dogworker-BacklogPerTaskScheduledRule-1QAZ2WSX/BacklogPerTaskCalculatorFunctionTrigger
+aws_cloudwatch_event_target.job_rule_target_statemachine	my-app-test-job-Rule-1A2S3D4F5G6H/statemachine
 aws_cloudwatch_log_group.dogworker_backlog_per_task_calculator_log_group	/aws/lambda/my-app-test-dogworker-BacklogPerTaskCalculatorF-Kq7Zr2
 aws_cloudwatch_log_group.dogworker_log_group	/copilot/my-app-test-dogworker
 aws_cloudwatch_log_group.fe_log_group	/copilot/my-app-test-fe
+aws_cloudwatch_log_group.job_log_group	/copilot/my-app-test-job
 aws_cloudwatch_log_resource_policy.test_log_resource_policy	my-app-test-LogResourcePolicy
 aws_cloudwatch_metric_alarm.dogworker_cpurollback_alarm	my-app-test-dogworker-CopilotRollbackCPUAlarm
 aws_cloudwatch_metric_alarm.dogworker_memory_rollback_alarm	my-app-test-dogworker-CopilotRollbackMemAlarm
@@ -20,6 +23,11 @@ aws_ecs_service.dogworker_service	my-app-test-Cluster-Q1w2E3r4T5y6/my-app-test-d
 aws_ecs_service.fe_service	my-app-test-Cluster-Q1w2E3r4T5y6/my-app-test-fe-Service-Zx9Yw8Vu7Ts6
 aws_ecs_task_definition.dogworker_task_definition	arn:aws:ecs:us-west-2:123456789012:task-definition/my-app-test-dogworker:3
 aws_ecs_task_definition.fe_task_definition	arn:aws:ecs:us-west-2:123456789012:task-definition/my-app-test-fe:7
+aws_ecs_task_definition.job_task_definition	arn:aws:ecs:us-west-2:123456789012:task-definition/my-app-test-job:2
+aws_efs_access_point.job_access_point	fsap-0a1b2c3d4e5f6a7b8
+aws_efs_file_system.test_file_system	fs-0a1b2c3d4e5f60081
+aws_efs_mount_target.test_mount_target1	fsmt-0a1b2c3d4e5f60091
+aws_efs_mount_target.test_mount_target2	fsmt-0a1b2c3d4e5f60092
 aws_eip.test_nat_gateway1_attachment	eipalloc-0a1b2c3d4e5f60071
 aws_eip.test_nat_gateway2_attachment	eipalloc-0a1b2c3d4e5f60072
 aws_iam_role.dogworker_auto_scaling_role	my-app-test-dogworker-AutoScalingRole-0748259709
@@ -32,6 +40,11 @@ aws_iam_role.fe_env_controller_role	my-app-test-fe-EnvControllerRole-O5P6Q7R8S9T
 aws_iam_role.fe_execution_role	my-app-test-fe-ExecutionRole-1A2B3C4D5E6F
 aws_iam_role.fe_rule_priority_function_role	my-app-test-fe-RulePriorityFunctionRole-W3X4Y5Z6A7B8
 aws_iam_role.fe_task_role	my-app-test-fe-TaskRole-7G8H9I0J1K2L
+aws_iam_role.job_env_controller_role	my-app-test-job-EnvControllerRole-1906381098
+aws_iam_role.job_execution_role	my-app-test-job-ExecutionRole-0326928404
+aws_iam_role.job_rule_role	my-app-test-job-RuleRole-0881465610
+aws_iam_role.job_state_machine_role	my-app-test-job-StateMachineRole-3026236409
+aws_iam_role.job_task_role	my-app-test-job-TaskRole-0751085183
 aws_iam_role.test_cloudformation_execution_role	my-app-test-CFNExecutionRole
 aws_iam_role.test_custom_resource_role	my-app-test-CustomResourceRole-1Z2X3C4V5B6N
 aws_iam_role.test_environment_manager_role	my-app-test-EnvManagerRole
@@ -71,11 +84,13 @@ aws_route_table_association.test_public_subnet2_route_table_association	subnet-0
 aws_secretsmanager_secret.fe_addons_db_aurora_secret	arn:aws:secretsmanager:us-west-2:123456789012:secret:dbAuroraSecret-AbCdEfGhIjKl-q1W2e3
 aws_security_group.fe_addons_db_dbcluster_security_group	sg-0a1b2c3d4e5f60302
 aws_security_group.fe_addons_db_security_group	sg-0a1b2c3d4e5f60301
+aws_security_group.test_efssecurity_group	sg-0a1b2c3d4e5f60104
 aws_security_group.test_environment_security_group	sg-0a1b2c3d4e5f60103
 aws_security_group.test_public_httpload_balancer_security_group	sg-0a1b2c3d4e5f60101
 aws_security_group.test_public_httpsload_balancer_security_group	sg-0a1b2c3d4e5f60102
 aws_service_discovery_private_dns_namespace.test_service_discovery_namespace	ns-0a1b2c3d4e5f6a7b8:vpc-0a1b2c3d4e5f60001
 aws_service_discovery_service.fe_discovery_service	srv-0a1b2c3d4e5f6a7b8
+aws_sfn_state_machine.job_state_machine	arn:aws:states:us-west-2:123456789012:stateMachine:my-app-test-job
 aws_sns_topic.dogworker_gives_otherdogs_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-givesOtherdogs
 aws_sns_topic.dogworker_mytopic_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-mytopic
 aws_sns_topic.dogworker_mytopicfifo_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-mytopic.fifo
@@ -83,6 +98,7 @@ aws_sns_topic.dogworker_nonfifotopic_snstopic	arn:aws:sns:us-west-2:123456789012
 aws_sns_topic.dogworker_yourtopicfifo_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-yourtopic.fifo
 aws_sns_topic.fe_givesdogs_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-fe-givesdogs
 aws_sns_topic.fe_mytopicfifo_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-fe-mytopic.fifo
+aws_sns_topic.job_mytopicfifo_snstopic	arn:aws:sns:us-west-2:123456789012:my-app-test-job-mytopic.fifo
 aws_sns_topic_policy.dogworker_gives_otherdogs_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-givesOtherdogs
 aws_sns_topic_policy.dogworker_mytopic_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-mytopic
 aws_sns_topic_policy.dogworker_mytopicfifo_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-mytopic.fifo
@@ -90,6 +106,7 @@ aws_sns_topic_policy.dogworker_nonfifotopic_snstopic_policy	arn:aws:sns:us-west-
 aws_sns_topic_policy.dogworker_yourtopicfifo_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-dogworker-yourtopic.fifo
 aws_sns_topic_policy.fe_givesdogs_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-fe-givesdogs
 aws_sns_topic_policy.fe_mytopicfifo_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-fe-mytopic.fifo
+aws_sns_topic_policy.job_mytopicfifo_snstopic_policy	arn:aws:sns:us-west-2:123456789012:my-app-test-job-mytopic.fifo
 aws_sns_topic_subscription.dogworker_dogsvcgivesdogs_snstopic_subscription	arn:aws:sns:us-west-2:123456789012:my-app-test-dogsvc-givesdogs:0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c00
 aws_sns_topic_subscription.dogworker_dogsvcgiveshuskies_snstopic_subscription	arn:aws:sns:us-west-2:123456789012:my-app-test-dogsvc-giveshuskies:0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c01
 aws_sns_topic_subscription.dogworker_mytopicmytopicfifo_snstopic_subscription	arn:aws:sns:us-west-2:123456789012:my-app-test-mytopic-mytopic.fifo:0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c02
@@ -112,6 +129,7 @@ aws_subnet.test_private_subnet2	subnet-0a1b2c3d4e5f60022
 aws_subnet.test_public_subnet1	subnet-0a1b2c3d4e5f60011
 aws_subnet.test_public_subnet2	subnet-0a1b2c3d4e5f60012
 aws_vpc.test_vpc	vpc-0a1b2c3d4e5f60001
+aws_vpc_security_group_ingress_rule.test_efssecurity_group_ingress_from_environment	sgr-0a1b2c3d4e5f60204
 aws_vpc_security_group_ingress_rule.test_environment_httpsecurity_group_ingress_from_public_alb	sgr-0a1b2c3d4e5f60201
 aws_vpc_security_group_ingress_rule.test_environment_httpssecurity_group_ingress_from_public_alb	sgr-0a1b2c3d4e5f60202
 aws_vpc_security_group_ingress_rule.test_environment_security_group_ingress_from_self	sgr-0a1b2c3d4e5f60203

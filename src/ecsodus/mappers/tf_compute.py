@@ -202,6 +202,88 @@ def lambda_permission(ctx: Ctx) -> MapResult:
     return TfSpec("aws_lambda_permission", f"{name}/{sid}", body)
 
 
+# -- Step Functions -------------------------------------------------------------------------
+
+_SFN_PROPS = {
+    "StateMachineName", "RoleArn", "DefinitionString", "DefinitionSubstitutions", "Definition",
+    "LoggingConfiguration", "StateMachineType", "TracingConfiguration", "Tags",
+}  # fmt: skip
+
+
+def _sfn_definition(ctx: Ctx) -> Any:
+    """The definition CloudFormation deployed: DefinitionString (or Definition) with every
+    ``${Key}`` of DefinitionSubstitutions replaced, parsed as JSON."""
+    if ctx.has("Definition"):
+        raw = json.dumps(ctx.r("Definition"))
+    else:
+        raw = str(ctx.r("DefinitionString"))
+    for key, val in (ctx.r("DefinitionSubstitutions", None) or {}).items():
+        raw = raw.replace("${" + str(key) + "}", str(val))
+    if "${" in raw:
+        raise Unresolvable("definition has a substitution with no value")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise Unresolvable(f"definition is not JSON after substitution: {exc}") from exc
+
+
+@mapper("AWS::StepFunctions::StateMachine")
+def sfn_state_machine(ctx: Ctx) -> TfSpec:
+    """aws_sfn_state_machine, imported by state machine ARN (the physical id).
+
+    Optional live keys (DescribeStateMachine): ``definition`` must equal the template's
+    definition after substitution (JSON-equal), ``roleArn`` and ``type`` must match, and
+    ``tags`` (ListTagsForResource). A Scheduled Job's state machine runs the job's task.
+    ``publish`` exists only in Terraform: written at its default, ignored for the import and
+    hardened after it (RUNBOOK step 4b).
+    """
+    _only(ctx, _SFN_PROPS)
+    if not ctx.pid.startswith("arn:"):
+        raise Unresolvable(f"state machine physical id {ctx.pid} is not an ARN")
+    name = ctx.pid.rsplit(":", 1)[-1]
+    tmpl_name = ctx.r("StateMachineName", None)
+    if tmpl_name is not None and tmpl_name != name:
+        raise Unresolvable(f"StateMachineName {tmpl_name} != ARN name {name}")
+    definition = _sfn_definition(ctx)
+    live = ctx.live
+    if "definition" in live and json.loads(live["definition"]) != definition:
+        raise Unresolvable("live definition differs from the deployed template")
+    role = str(ctx.r("RoleArn"))
+    if "roleArn" in live and live["roleArn"] != role:
+        raise Unresolvable(f"live roleArn {live['roleArn']} != template {role}")
+    body: list = [("name", name), ("role_arn", role), ("definition", _json(definition))]
+    smtype = ctx.r("StateMachineType", None)
+    if "type" in live and live["type"] != (smtype or "STANDARD"):
+        raise Unresolvable(f"live type {live['type']} != template {smtype or 'STANDARD'}")
+    if smtype:
+        body.append(("type", smtype))
+    logging = ctx.r("LoggingConfiguration", None)
+    if logging:
+        extra = set(logging) - {"Destinations", "IncludeExecutionData", "Level"}
+        if extra:
+            raise Unresolvable(f"LoggingConfiguration keys not supported: {sorted(extra)}")
+        lb: list = []
+        dests = logging.get("Destinations") or []
+        if len(dests) > 1:
+            raise Unresolvable("more than one logging destination")
+        if dests:
+            group = (dests[0].get("CloudWatchLogsLogGroup") or {}).get("LogGroupArn")
+            if not group:
+                raise Unresolvable("logging destination is not a CloudWatch Logs group")
+            lb.append(("log_destination", str(group)))
+        if "IncludeExecutionData" in logging:
+            lb.append(("include_execution_data", _bool(logging["IncludeExecutionData"])))
+        if "Level" in logging:
+            lb.append(("level", logging["Level"]))
+        body.append(("logging_configuration", Block(lb)))
+    tracing = ctx.r("TracingConfiguration", None)
+    if tracing:
+        body.append(("tracing_configuration", Block([("enabled", _bool(tracing["Enabled"]))])))
+    _add_tags(ctx, body)
+    body.append(("publish", False))
+    return TfSpec("aws_sfn_state_machine", ctx.pid, body)
+
+
 # -- EventBridge ----------------------------------------------------------------------------
 
 
@@ -210,8 +292,10 @@ def events_rule(ctx: Ctx) -> TfSpec:
     """aws_cloudwatch_event_rule (import id = rule name, the physical id) plus one
     aws_cloudwatch_event_target per target (import id ``<rule>/<target id>``).
 
-    Default event bus only. Optional live keys (DescribeRule + ListTargetsByRule +
-    ListTagsForResource): ``Targets`` must match the template's targets exactly; ``Tags``.
+    Default event bus only; targets with ``Id``, ``Arn`` and optionally ``RoleArn`` (a
+    Scheduled Job's rule assumes a role to start its state machine). Optional live keys
+    (DescribeRule + ListTargetsByRule + ListTagsForResource): ``Targets`` must match the
+    template's targets exactly; ``Tags``.
     """
     _only(ctx, {"Name", "Description", "ScheduleExpression", "EventPattern", "State", "Targets"})
     if "|" in ctx.pid or "/" in ctx.pid:
@@ -231,17 +315,20 @@ def events_rule(ctx: Ctx) -> TfSpec:
     _add_tags(ctx, body)
     targets = ctx.r("Targets", []) or []  # Fn::If with AWS::NoValue resolves to None
     live_targets = ctx.live.get("Targets")
+    keys = ("Id", "Arn", "RoleArn")
     if live_targets is not None:
-        want = sorted((str(t.get("Id")), str(t.get("Arn"))) for t in targets)
-        have = sorted((str(t.get("Id")), str(t.get("Arn"))) for t in live_targets)
-        if want != have or any(set(t) - {"Id", "Arn"} for t in live_targets):
+        want = sorted(tuple(str(t.get(k, "")) for k in keys) for t in targets)
+        have = sorted(tuple(str(t.get(k, "")) for k in keys) for t in live_targets)
+        if want != have or any(set(t) - set(keys) for t in live_targets):
             raise Unresolvable(f"live targets {live_targets!r} differ from the template")
     companions: list[tuple[str, TfSpec]] = []
     for t in targets:
-        if set(t) - {"Id", "Arn"}:
-            raise Unresolvable(f"target keys not supported: {sorted(set(t) - {'Id', 'Arn'})}")
+        if set(t) - set(keys):
+            raise Unresolvable(f"target keys not supported: {sorted(set(t) - set(keys))}")
         tid = str(t["Id"])
         tbody: list = [("rule", name), ("target_id", tid), ("arn", str(t["Arn"]))]
+        if t.get("RoleArn"):
+            tbody.append(("role_arn", str(t["RoleArn"])))
         companions.append(
             (f"target_{tid}", TfSpec("aws_cloudwatch_event_target", f"{name}/{tid}", tbody))
         )
