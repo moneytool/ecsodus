@@ -232,7 +232,8 @@ def test_scheduled_job_imports(built: tuple[Inventory, MigrationPlan]) -> None:
     assert sm.spec.import_id == app.STATE_MACHINE
     body = dict(sm.spec.body)
     assert body["name"] == app.JOB_STACK
-    definition = str(body["definition"].expr)
+    definition = body["definition"]
+    assert isinstance(definition, str)
     assert app.JOB_TD_ARN in definition and app.CLUSTER in definition and "${" not in definition
     target = j["Rule/target_statemachine"]
     assert target.spec and dict(target.spec.body)["arn"] == app.STATE_MACHINE

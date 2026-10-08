@@ -69,6 +69,7 @@ nav:
       - Stack layering: knowledge/copilot-stacks.md
   - Evidence:
       - AWS end-to-end run (2026-09-30): e2e/2026-09-30-aws-e2e.md
+      - AWS run, Workers and Jobs (2026-10-07): e2e/2026-10-07-aws-e2e-workers-jobs.md
       - Example report: examples/copilot-lbws-aurora/REPORT.md
       - Example runbook: examples/copilot-lbws-aurora/RUNBOOK.md
       - Status: STATUS.md
@@ -79,7 +80,7 @@ nav:
       - Code reviews: council/code-review-v0.1/README.md
 
 extra:
-  version: 0.1.2
+  version: 0.2.0
   doi: 10.5281/zenodo.23073590
   author_orcid: https://orcid.org/0009-0005-1167-2026
   social_image: assets/social-preview.png

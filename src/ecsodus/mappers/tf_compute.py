@@ -210,9 +210,9 @@ _SFN_PROPS = {
 }  # fmt: skip
 
 
-def _sfn_definition(ctx: Ctx) -> Any:
+def _sfn_definition(ctx: Ctx) -> tuple[str, Any]:
     """The definition CloudFormation deployed: DefinitionString (or Definition) with every
-    ``${Key}`` of DefinitionSubstitutions replaced, parsed as JSON."""
+    ``${Key}`` of DefinitionSubstitutions replaced, as (exact text, parsed JSON)."""
     if ctx.has("Definition"):
         raw = json.dumps(ctx.r("Definition"))
     else:
@@ -222,7 +222,7 @@ def _sfn_definition(ctx: Ctx) -> Any:
     if "${" in raw:
         raise Unresolvable("definition has a substitution with no value")
     try:
-        return json.loads(raw)
+        return raw, json.loads(raw)
     except json.JSONDecodeError as exc:
         raise Unresolvable(f"definition is not JSON after substitution: {exc}") from exc
 
@@ -232,8 +232,9 @@ def sfn_state_machine(ctx: Ctx) -> TfSpec:
     """aws_sfn_state_machine, imported by state machine ARN (the physical id).
 
     Optional live keys (DescribeStateMachine): ``definition`` must equal the template's
-    definition after substitution (JSON-equal), ``roleArn`` and ``type`` must match, and
-    ``tags`` (ListTagsForResource). A Scheduled Job's state machine runs the job's task.
+    definition after substitution (JSON-equal) and is then written verbatim; ``roleArn`` and
+    ``type`` must match; ``tags`` (ListTagsForResource). A Scheduled Job's state machine runs
+    the job's task.
     ``publish`` exists only in Terraform: written at its default, ignored for the import and
     hardened after it (RUNBOOK step 4b).
     """
@@ -244,14 +245,18 @@ def sfn_state_machine(ctx: Ctx) -> TfSpec:
     tmpl_name = ctx.r("StateMachineName", None)
     if tmpl_name is not None and tmpl_name != name:
         raise Unresolvable(f"StateMachineName {tmpl_name} != ARN name {name}")
-    definition = _sfn_definition(ctx)
+    text, definition = _sfn_definition(ctx)
     live = ctx.live
-    if "definition" in live and json.loads(live["definition"]) != definition:
-        raise Unresolvable("live definition differs from the deployed template")
+    if "definition" in live:
+        if json.loads(live["definition"]) != definition:
+            raise Unresolvable("live definition differs from the deployed template")
+        text = live["definition"]
     role = str(ctx.r("RoleArn"))
     if "roleArn" in live and live["roleArn"] != role:
         raise Unresolvable(f"live roleArn {live['roleArn']} != template {role}")
-    body: list = [("name", name), ("role_arn", role), ("definition", _json(definition))]
+    # The provider compares the definition as text, so it is written exactly as deployed
+    # (found on the 2026-10-07 AWS run: re-serialised JSON planned an update).
+    body: list = [("name", name), ("role_arn", role), ("definition", text)]
     smtype = ctx.r("StateMachineType", None)
     if "type" in live and live["type"] != (smtype or "STANDARD"):
         raise Unresolvable(f"live type {live['type']} != template {smtype or 'STANDARD'}")
@@ -960,7 +965,9 @@ def lb(ctx: Ctx) -> TfSpec:
     scheme = ctx.r("Scheme", "internet-facing")
     lb_type = ctx.r("Type", "application")
     if lb_type != "application":
-        raise Unresolvable(f"load balancer type {lb_type} is blocked in v0.1")
+        # Network Load Balancers (Copilot's `nlb` section) stay on Copilot until a migration of
+        # one has been exercised; their stack is kept.
+        raise Unresolvable(f"load balancer type {lb_type} is not supported yet")
     for key, tmpl in (("Scheme", scheme), ("Type", lb_type)):
         if key in ctx.live and ctx.live[key] != tmpl:
             raise Unresolvable(f"{key} {tmpl} != live {ctx.live[key]}")
@@ -1367,6 +1374,8 @@ def appautoscaling_target(ctx: Ctx) -> TfSpec:
         body.append(("role_arn", ctx.live["RoleARN"]))
     elif ctx.has("RoleARN"):
         notes.append("role_arn omitted (computed): AWS may use the service-linked role")
+    # CloudFormation propagates stack tags onto scalable targets (2026-10-07 AWS run).
+    _add_tags(ctx, body)
     return TfSpec("aws_appautoscaling_target", f"{ns}/{rid}/{dim}", body, notes=notes)
 
 
@@ -1636,7 +1645,12 @@ _SQS_JSON = (("RedrivePolicy", "redrive_policy"), ("RedriveAllowPolicy", "redriv
 
 @mapper("AWS::SQS::Queue")
 def sqs_queue(ctx: Ctx) -> TfSpec:
-    """aws_sqs_queue, imported by queue URL (the physical id). No live keys."""
+    """aws_sqs_queue, imported by queue URL (the physical id).
+
+    Optional live key (GetQueueAttributes): ``MaximumMessageSize`` when the template omits it.
+    AWS raised the default to 1 MiB while the provider still assumes 256 KiB, so a queue
+    created without the property planned an update (2026-10-07 AWS run).
+    """
     _only(ctx, {"QueueName", "Tags", *(k for k, _, _ in _SQS_ARGS), *(k for k, _ in _SQS_JSON)})
     url = ctx.pid
     name = url.rstrip("/").rsplit("/", 1)[-1]
@@ -1647,6 +1661,8 @@ def sqs_queue(ctx: Ctx) -> TfSpec:
     for cfn, tf, conv in _SQS_ARGS:
         if ctx.has(cfn):
             body.append((tf, conv(ctx.r(cfn))))
+        elif cfn == "MaximumMessageSize" and cfn in ctx.live:
+            body.append((tf, conv(ctx.live[cfn])))
     for cfn, tf in _SQS_JSON:
         if ctx.has(cfn):
             body.append((tf, _json(ctx.r(cfn))))

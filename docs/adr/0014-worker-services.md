@@ -60,8 +60,10 @@ Copilot's worker render also mounts EFS volumes from another stack's export
 - `terraform plan` against a local moto server, with the generated blocks for the function,
   permission, rule, target and a filtered subscription: `5 to import, 0 to add, 0 to change,
   0 to destroy`.
-- Not yet run on real AWS. The import-only gate stops the migration if a real account plans
-  any change.
+- **Real AWS, 2026-10-07** ([report](../e2e/2026-10-07-aws-e2e-workers-jobs.md)): 63/63 pure
+  imports, every Copilot stack deleted, no Delete handler ran, and the backlog Lambda kept
+  publishing under Terraform. The run added live SQS attributes (AWS's 1 MiB default message
+  size) and scalable-target tags.
 
 ## Consequences
 Queue-based scaling keeps working after the hand-off, and Terraform owns the calculator. The

@@ -45,6 +45,6 @@ their Delete handlers; the runbook lists them for deletion afterwards.
 - **Custom domains.** The certificate and its validation records were created by a custom
   resource, outside CloudFormation. ecsodus imports them with the environment; their survival
   through teardown on a real account is still being verified (issue #6).
-- **Network Load Balancer.** An LBWS with an `nlb` section goes through the same mappers (the
-  NLB, its listeners, target groups and security group rules), but neither the test app nor the
-  AWS run has exercised one. Read its rows in the report, and let `check --phase import` decide.
+- **Network Load Balancer.** An LBWS with an `nlb` section is kept on Copilot: the network
+  load balancer is blocked until a migration of one has been exercised, which keeps its stack
+  (and the environment it needs).

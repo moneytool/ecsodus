@@ -128,6 +128,7 @@ and the [FAQ](https://moneytool.github.io/ecsodus/faq/).
 - [Questions or a Copilot app ecsodus can't handle yet?](https://github.com/moneytool/ecsodus/discussions/18) Tell us in Discussions
 - [Project status](docs/STATUS.md): what is done and what is pending
 - [AWS end-to-end report](docs/e2e/2026-09-30-aws-e2e.md): the real run (passed)
+- [AWS run, Workers and Jobs](docs/e2e/2026-10-07-aws-e2e-workers-jobs.md): 63/63 imports, passed
 - [Worked example](docs/examples/): REPORT.md and RUNBOOK.md for a real Copilot app
 - [Quickstart](docs/guides/quickstart.md)
 - [Workload types](docs/workloads/index.md): what ecsodus does with each Copilot workload type

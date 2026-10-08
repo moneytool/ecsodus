@@ -1,21 +1,21 @@
-# Status: v0.1.2 released (2026-09-30); Worker Services and Scheduled Jobs in review (unreleased)
+# Status: v0.2.0 (2026-10-07)
 
-## Unreleased: Worker Services (ADR-0014)
+## v0.2.0: Worker Services (ADR-0014)
 
 - Worker Services hand off, including the backlog-per-task Lambda their queue-depth scaling
   depends on. The synthetic full-hand-off app now has a Worker Service: four stacks, 114–117
   imports, `terraform validate` clean. The new Lambda, permission, Events rule and target, and
   SNS subscription blocks plan as pure imports against a local moto server.
-- Not yet run on real AWS (the import-only gate guards that).
+- Verified on real AWS on 2026-10-07 ([report](e2e/2026-10-07-aws-e2e-workers-jobs.md)).
 
-## Unreleased: Scheduled Jobs (ADR-0015)
+## v0.2.0: Scheduled Jobs (ADR-0015)
 
 - Scheduled Jobs hand off: the Events rule and its role-assuming target, the Step Functions
   state machine (definition substituted exactly and checked against the live definition), and
   the EFS access point on the env's managed file system. The synthetic app now has a job and
   the env's managed EFS: five stacks, 132–135 imports, `terraform validate` clean.
-- The rule and target plan as pure imports against moto. Moto cannot read state machines
-  (`ListStateMachineVersions` is not implemented), so that import is checked only on real AWS.
+- Verified on real AWS on 2026-10-07 ([report](e2e/2026-10-07-aws-e2e-workers-jobs.md)): 63/63
+  pure imports, teardown, and a successful job run from the Terraform-owned state machine.
 
 ## Done
 

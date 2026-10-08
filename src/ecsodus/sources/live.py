@@ -347,9 +347,20 @@ def _scalable_targets(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     aas = clients("application-autoscaling")
     for t in paginate(aas, "describe_scalable_targets", "ScalableTargets", ServiceNamespace="ecs"):
         key = f"{t['ResourceId']}|{t['ScalableDimension']}|{t['ServiceNamespace']}"
-        inv.live[key] = t
         if t.get("ScalableTargetARN"):
+            # CloudFormation propagates stack tags onto scalable targets.
+            tags = aas.list_tags_for_resource(ResourceARN=t["ScalableTargetARN"]).get("Tags", {})
+            t["Tags"] = tags
             inv.live[t["ScalableTargetARN"]] = t
+        inv.live[key] = t
+
+
+@reader("AWS::SQS::Queue")
+def _queues(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    sqs = clients("sqs")
+    for url in ids:
+        attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["All"])
+        inv.live[url] = attrs.get("Attributes", {})
 
 
 @reader("AWS::ApplicationAutoScaling::ScalingPolicy")

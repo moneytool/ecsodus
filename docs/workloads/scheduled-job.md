@@ -7,8 +7,8 @@ description: >-
 
 # Scheduled Job
 
-**Status: migrates** (unreleased; [ADR-0015](../adr/0015-scheduled-jobs.md)). Checked offline;
-the state machine import is not yet verified on a real account.
+**Status: migrates** ([ADR-0015](../adr/0015-scheduled-jobs.md)). Verified on real AWS
+([2026-10-07 run](../e2e/2026-10-07-aws-e2e-workers-jobs.md)).
 
 A Scheduled Job (`scheduled-job`) has no ECS service. An EventBridge rule fires on the job's
 schedule and, assuming a role, starts a Step Functions state machine. The state machine runs the

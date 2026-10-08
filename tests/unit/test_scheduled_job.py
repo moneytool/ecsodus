@@ -6,9 +6,10 @@ import json
 
 import pytest
 
+import ecsodus.mappers.tf_data  # noqa: F401  (registers the EFS mappers)
 from ecsodus.model import Inventory, Stack
 from tests.helpers import ACCOUNT, REGION
-from tests.unit.test_tf_compute import args, blocked, load, render, run, set_pid, spec_of
+from tests.unit.test_tf_compute import args, blocked, load, run, set_pid, spec_of
 
 ARN = f"{REGION}:{ACCOUNT}"
 STACK = "my-app-test-job"
@@ -38,10 +39,12 @@ def test_state_machine_definition_is_substituted(job):
     assert spec.tf_type == "aws_sfn_state_machine" and spec.import_id == SM
     a = args(spec)
     assert a["name"] == STACK
-    text = render(spec)
-    assert "${" not in text.replace("jsonencode", "")
-    assert TD in text and "my-app-test-Cluster-abc" in text
-    assert '"subnet-0aaa",' in text and '"subnet-0bbb",' in text  # the joined list, split back
+    definition = a["definition"]
+    assert isinstance(definition, str)  # written as deployed text: the provider compares text
+    assert "${" not in definition
+    assert TD in definition and "my-app-test-Cluster-abc" in definition
+    assert '["subnet-0aaa","subnet-0bbb"]' in definition  # the joined list, split back
+    assert json.loads(definition)["StartAt"] == "Run Fargate Task"
     logging = dict(a["logging_configuration"].body)
     assert logging["level"] == "ALL" and logging["include_execution_data"] is True
     assert logging["log_destination"] == f"arn:aws:logs:{ARN}:log-group:/copilot/{STACK}:*"
@@ -90,3 +93,32 @@ def test_state_machine_publish_is_ignored_for_import_then_hardened(job):
     spec = spec_of(run(inv, stack, "StateMachine"))
     assert args(spec)["publish"] is False
     assert IMPORT_UNREAD["aws_sfn_state_machine"] == ("publish",)
+
+
+def test_env_controller_output_comes_from_the_env_stack(job):
+    """GetAtt EnvControllerAction.ManagedFileSystemID resolves to the env stack's output, which
+    is what Copilot's env-controller returns (found on the 2026-10-07 AWS run)."""
+    from ecsodus.mappers.resolve import Resolver, Unresolvable
+
+    inv, stack = job
+    r = Resolver(inv, stack)
+    att = {"Fn::GetAtt": ["EnvControllerAction", "ManagedFileSystemID"]}
+    with pytest.raises(Unresolvable, match="no such output"):
+        r.resolve(att)
+    inv.stacks["my-app-test"].outputs["ManagedFileSystemID"] = "fs-0abc"
+    assert r.resolve(att) == "fs-0abc"
+    spec = spec_of(run(inv, stack, "AccessPoint"))
+    assert args(spec)["file_system_id"] == "fs-0abc"
+    inv.stacks["my-app-test"].outputs["EnabledFeatures"] = "efs"
+    with pytest.raises(Unresolvable, match="not an env-controller output"):
+        r.resolve({"Fn::GetAtt": ["EnvControllerAction", "EnabledFeatures"]})
+
+
+def test_state_machine_definition_is_written_as_live_text(job):
+    """The provider compares definitions as text, so the live text is written verbatim when
+    it is JSON-equal to the template's (2026-10-07 AWS run)."""
+    inv, stack = job
+    template_text = args(spec_of(run(inv, stack, "StateMachine")))["definition"]
+    live_text = json.dumps(json.loads(template_text), indent=4)
+    inv.live[SM] = {"definition": live_text}
+    assert args(spec_of(run(inv, stack, "StateMachine")))["definition"] == live_text
