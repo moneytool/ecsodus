@@ -465,9 +465,19 @@ def render(
             "retained them, and they are now unowned:\n"
         )
         for rp in plan.resources:
-            if rp.fate == MANUAL_CLEANUP and rp.physical_id and rp.stack in plan.teardown:
+            if (
+                rp.fate == MANUAL_CLEANUP
+                and rp.physical_id
+                and rp.stack in plan.teardown
+                and not rp.type.startswith("Custom::")
+            ):
                 w(f"- `{rp.type}` `{rp.physical_id}` (from `{rp.stack}/{rp.logical_id}`)")
         w()
+        w(
+            "Custom-resource handles (`Custom::*`) are not AWS resources and are not listed: "
+            "they disappear with their stack. Never delete anything by a handle's physical ID. "
+            "`HTTPSCert`'s is the ARN of the certificate Terraform now owns.\n"
+        )
     else:
         w(
             "Copilot-internal leftovers (custom-resource Lambdas and roles) are listed in "

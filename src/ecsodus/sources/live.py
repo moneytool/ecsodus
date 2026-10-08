@@ -325,6 +325,10 @@ def _zones(clients: Clients, inv: Inventory, ids: list[str]) -> None:
         info["RecordSets"] = paginate(
             r53, "list_resource_record_sets", "ResourceRecordSets", HostedZoneId=zid
         )
+        # Whether CloudFormation copies stack tags onto a hosted zone is not something to
+        # assume: read the zone's tags, so the mapper writes exactly what is there.
+        tagged = r53.list_tags_for_resource(ResourceType="hostedzone", ResourceId=zid)
+        info["Tags"] = (tagged.get("ResourceTagSet") or {}).get("Tags") or []
         inv.live[zid] = info
 
 

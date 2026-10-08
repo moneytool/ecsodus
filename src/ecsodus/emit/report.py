@@ -124,8 +124,19 @@ def render(plan: MigrationPlan) -> str:
             "Retained by the patch, so no stack delete invokes a handler. Delete by hand after "
             "step 6.\n"
         )
+        handles = [r for r in cleanup if r.type.startswith("Custom::")]
         for r in cleanup:
-            w(f"- `{r.stack}/{r.logical_id}` ({r.type}) {r.physical_id or ''}")
+            if r not in handles:
+                w(f"- `{r.stack}/{r.logical_id}` ({r.type}) {r.physical_id or ''}")
+        if handles:
+            w(
+                "\nCustom-resource handles are not AWS resources: they disappear with their "
+                "stack, so there is nothing to delete. Never delete anything by a handle's "
+                "physical ID: `HTTPSCert`'s is the imported certificate's ARN, and "
+                "`DelegateDNSAction`'s names the env zone's NS delegation.\n"
+            )
+            for r in handles:
+                w(f"- `{r.stack}/{r.logical_id}` ({r.type})")
         w("")
 
     ext = [p for p in inv.ssm_parameters if p.get("type") == "SecureString"]

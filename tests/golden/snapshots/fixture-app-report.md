@@ -452,20 +452,23 @@ Retained by the patch, so no stack delete invokes a handler. Delete by hand afte
 - `my-app-test/CertificateValidationFunction` (AWS::Lambda::Function) my-app-test-CertificateValidationFunction-XYZ
 - `my-app-test/CustomDomainFunction` (AWS::Lambda::Function) my-app-test-CustomDomainFunction-XYZ
 - `my-app-test/DNSDelegationFunction` (AWS::Lambda::Function) my-app-test-DNSDelegationFunction-XYZ
-- `my-app-test/DelegateDNSAction` (Custom::DNSDelegationFunction) my-app-test-DelegateDNSAction
-- `my-app-test/HTTPSCert` (Custom::CertificateValidationFunction) my-app-test-HTTPSCert
-- `my-app-test/CustomDomainAction` (Custom::CustomDomainFunction) my-app-test-CustomDomainAction
-- `my-app-test-fe/DynamicDesiredCountAction` (Custom::DynamicDesiredCountFunction) my-app-test-fe-DynamicDesiredCountAction
 - `my-app-test-fe/DynamicDesiredCountFunction` (AWS::Lambda::Function) my-app-test-fe-DynamicDesiredCountFunction-XYZ
-- `my-app-test-fe/EnvControllerAction` (Custom::EnvControllerFunction) my-app-test-fe-EnvControllerAction
 - `my-app-test-fe/EnvControllerFunction` (AWS::Lambda::Function) my-app-test-fe-EnvControllerFunction-XYZ
 - `my-app-test-fe/RulePriorityFunction` (AWS::Lambda::Function) my-app-test-fe-RulePriorityFunction-XYZ
-- `my-app-test-fe/HTTPSRulePriorityAction` (Custom::RulePriorityFunction) my-app-test-fe-HTTPSRulePriorityAction
-- `my-app-test-fe/HTTPRedirectRulePriorityAction` (Custom::RulePriorityFunction) my-app-test-fe-HTTPRedirectRulePriorityAction
-- `my-app-test-be/EnvControllerAction` (Custom::EnvControllerFunction) my-app-test-be-EnvControllerAction
 - `my-app-test-be/EnvControllerFunction` (AWS::Lambda::Function) my-app-test-be-EnvControllerFunction-XYZ
-- `my-app-test-worker/DynamicDesiredCountAction` (Custom::DynamicDesiredCountFunction) my-app-test-worker-DynamicDesiredCountAction
 - `my-app-test-worker/DynamicDesiredCountFunction` (AWS::Lambda::Function) my-app-test-worker-DynamicDesiredCountFunction-XYZ
-- `my-app-test-worker/EnvControllerAction` (Custom::EnvControllerFunction) my-app-test-worker-EnvControllerAction
 - `my-app-test-worker/EnvControllerFunction` (AWS::Lambda::Function) my-app-test-worker-EnvControllerFunction-XYZ
+
+Custom-resource handles are not AWS resources: they disappear with their stack, so there is nothing to delete. Never delete anything by a handle's physical ID: `HTTPSCert`'s is the imported certificate's ARN, and `DelegateDNSAction`'s names the env zone's NS delegation.
+
+- `my-app-test/DelegateDNSAction` (Custom::DNSDelegationFunction)
+- `my-app-test/HTTPSCert` (Custom::CertificateValidationFunction)
+- `my-app-test/CustomDomainAction` (Custom::CustomDomainFunction)
+- `my-app-test-fe/DynamicDesiredCountAction` (Custom::DynamicDesiredCountFunction)
+- `my-app-test-fe/EnvControllerAction` (Custom::EnvControllerFunction)
+- `my-app-test-fe/HTTPSRulePriorityAction` (Custom::RulePriorityFunction)
+- `my-app-test-fe/HTTPRedirectRulePriorityAction` (Custom::RulePriorityFunction)
+- `my-app-test-be/EnvControllerAction` (Custom::EnvControllerFunction)
+- `my-app-test-worker/DynamicDesiredCountAction` (Custom::DynamicDesiredCountFunction)
+- `my-app-test-worker/EnvControllerAction` (Custom::EnvControllerFunction)
 

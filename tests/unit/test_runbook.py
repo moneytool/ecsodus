@@ -55,3 +55,18 @@ def test_retain_commands_preserve_parameters_only_when_present(
         assert "--capabilities" not in args
     if kind == STACKSET_INSTANCE:
         assert args[args.index("--execution-role-name") + 1] == "execution"
+
+
+def test_leftover_list_never_names_a_custom_resource_handle() -> None:
+    """A handle's physical ID can be a live, imported resource: Copilot's HTTPSCert reports the
+    certificate ARN. The post-teardown deletion list must not tell anyone to delete it."""
+    inv = app()
+    cert = "arn:aws:acm:us-west-2:123456789012:certificate/abc"
+    env = inv.stacks["demo-test"]
+    env.resource("CustomDomainAction").physical_id = cert  # stands in for HTTPSCert
+    plan = build_plan(inv)
+    rb = render(plan, build_patches(inv, "patch-bucket"), include_teardown=True)
+    leftovers = rb.split("delete the Copilot-internal leftovers", 1)[1].split("## 7.", 1)[0]
+    assert "`AWS::Lambda::Function` `demo-test-CustomDomainFunction-X1`" in leftovers
+    assert cert not in leftovers
+    assert "Custom::CustomDomainFunction" not in leftovers.split("Custom-resource handles", 1)[0]

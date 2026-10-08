@@ -264,3 +264,45 @@ def test_state_machine_read(aws) -> None:
     live.READERS["AWS::StepFunctions::StateMachine"](Clients(aws), inv, [arn])
     assert json.loads(inv.live[arn]["definition"]) == json.loads(definition)
     assert inv.live[arn]["tags"] == [{"key": "copilot-service", "value": "job"}]
+
+
+def test_out_of_band_certificate_records_its_tags(aws) -> None:
+    """The env HTTPSCert's certificate is found by its Copilot tags, and they are kept for the
+    Terraform configuration (without them the provider plans to remove the tags)."""
+    acm = aws.client("acm")
+    tags = [
+        {"Key": "copilot-application", "Value": "shop"},
+        {"Key": "copilot-environment", "Value": "test"},
+    ]
+    arn = acm.request_certificate(
+        DomainName="test.shop.example.com",
+        SubjectAlternativeNames=["test.shop.example.com", "*.test.shop.example.com"],
+        ValidationMethod="DNS",
+        Tags=tags,
+    )["CertificateArn"]
+    acm.request_certificate(DomainName="other.example.com", ValidationMethod="DNS")
+    inv = copilot.inventory(Clients(aws), "shop")
+    assert [o.id for o in inv.out_of_band] == [arn]
+    cert = inv.out_of_band[0]
+    assert cert.created_by.startswith("shop-test/")
+    assert cert.details["Tags"] == {"copilot-application": "shop", "copilot-environment": "test"}
+    assert cert.details["DomainValidationOptions"][0]["ResourceRecord"]["Type"] == "CNAME"
+
+
+def test_hosted_zone_read_includes_tags(aws) -> None:
+    from ecsodus.model import Inventory
+    from ecsodus.sources import live
+
+    r53 = aws.client("route53")
+    zid = r53.create_hosted_zone(Name="test.shop.example.com", CallerReference="z1")["HostedZone"][
+        "Id"
+    ].rsplit("/", 1)[-1]
+    r53.change_tags_for_resource(
+        ResourceType="hostedzone",
+        ResourceId=zid,
+        AddTags=[{"Key": "copilot-application", "Value": "shop"}],
+    )
+    inv = Inventory(app="shop", account="123456789012", region=REGION, captured_at="now")
+    live.READERS["AWS::Route53::HostedZone"](Clients(aws), inv, [zid])
+    assert inv.live[zid]["Tags"] == [{"Key": "copilot-application", "Value": "shop"}]
+    assert inv.live[zid]["NameServers"]
