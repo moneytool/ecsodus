@@ -234,3 +234,22 @@ def test_conditional_targets(tmp_path, enabled: str):
         blocked(result, "live targets")  # a target the template has, missing live
     else:
         assert spec_of(result).companions == []
+
+
+def test_queue_max_message_size_from_live_when_template_omits_it(worker):
+    """AWS's default is now 1 MiB; the provider assumes 256 KiB (2026-10-07 AWS run)."""
+    inv, stack = worker
+    url = stack.resource("EventsQueue").physical_id or ""  # type: ignore[union-attr]
+    assert "max_message_size" not in args(spec_of(run(inv, stack, "EventsQueue")))
+    inv.live[url] = {"MaximumMessageSize": "1048576"}
+    assert args(spec_of(run(inv, stack, "EventsQueue")))["max_message_size"] == 1048576
+
+
+def test_scalable_target_carries_stack_tags(worker):
+    """CloudFormation propagates stack tags onto scalable targets (2026-10-07 AWS run)."""
+    inv, stack = worker
+    rid = f"service/my-app-test-Cluster-abc/{STACK}-Svc"
+    set_pid(stack, "AutoScalingTarget", f"{rid}|ecs:service:DesiredCount|ecs")
+    stack.tags = {"copilot-application": "my-app", "copilot-service": "dogworker"}
+    a = args(spec_of(run(inv, stack, "AutoScalingTarget")))
+    assert a["tags"] == stack.tags

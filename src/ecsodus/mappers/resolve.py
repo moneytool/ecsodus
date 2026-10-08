@@ -176,6 +176,20 @@ class Resolver:
             raise Unresolvable(f"Ref {name}: resource has no physical id")
         return res.physical_id
 
+    def _env_controller_output(self, lid: str, attr: str) -> Any:
+        """Copilot's env-controller returns its environment stack's outputs (env-controller.js,
+        knowledge base), except two bookkeeping keys. The env stack's current outputs are what
+        it returned on its last run; a drifted value is caught by the import-only gate."""
+        if attr in ("EnabledFeatures", "LastForceDeployID"):
+            raise Unresolvable(f"GetAtt {lid}.{attr}: not an env-controller output")
+        env = next(
+            (s for s in self.inv.stacks.values() if s.kind == "env" and s.env == self.stack.env),
+            None,
+        )
+        if env is None or attr not in env.outputs:
+            raise Unresolvable(f"GetAtt {lid}.{attr}: no such output on the environment stack")
+        return env.outputs[attr]
+
     def _getatt(self, arg: Any) -> Any:
         if isinstance(arg, str):
             arg = arg.split(".", 1)
@@ -197,6 +211,8 @@ class Resolver:
         live = self.inv.live.get(res.physical_id) or {}
         if attr in live:
             return live[attr]
+        if res.type == "Custom::EnvControllerFunction":
+            return self._env_controller_output(lid, attr)
         alias = _LIVE_ALIASES.get((res.type, attr))
         if alias and alias in live:
             return live[alias]
