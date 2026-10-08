@@ -69,7 +69,8 @@ def normalise(text: str) -> str:
 def test_real_fixtures_fail_closed() -> None:
     inv = fixture_app()
     plan = build_plan(inv)
-    # The Worker Service type is blocked, which keeps the env stack (a shared dependency).
+    # Without live reads the worker has unresolvable values (an external EFS export, Service
+    # Connect, generated names), which keeps it and the env stack (a shared dependency).
     assert not plan.stacks["my-app-test-worker"].handoff
     assert not plan.stacks["my-app-test"].handoff
     assert plan.teardown_stops_at == "my-app-test"

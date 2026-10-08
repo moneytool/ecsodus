@@ -163,14 +163,14 @@ def test_stale_inventory_refused(tmp_path: Path) -> None:
 
 
 def test_report_command(tmp_path: Path) -> None:
-    inv = app(worker_type="Worker Service")
+    inv = app(worker_type="Scheduled Job")
     path = tmp_path / "inventory.json"
     inv.save(path)
     out = tmp_path / "REPORT.md"
     assert main(["report", str(path), "-o", str(out)]) == 0
     text = out.read_text()
     assert "keep the CloudFormation" in text
-    assert "Worker Service" in text and "kept" in text
+    assert "Scheduled Job" in text and "kept" in text
     assert "Deleting this stack <b>without</b> the retain patch" in text
 
 
