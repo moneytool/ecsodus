@@ -56,6 +56,14 @@ nav:
   - Guides:
       - Quickstart: guides/quickstart.md
       - How it works: guides/how-it-works.md
+  - Workload types:
+      - Overview: workloads/index.md
+      - Load Balanced Web Service: workloads/load-balanced-web-service.md
+      - Backend Service: workloads/backend-service.md
+      - Worker Service: workloads/worker-service.md
+      - Scheduled Job: workloads/scheduled-job.md
+      - Request-Driven Web Service: workloads/request-driven-web-service.md
+      - Static Site: workloads/static-site.md
   - Copilot internals:
       - Custom resources and their Delete handlers: knowledge/copilot-custom-resources.md
       - Stack layering: knowledge/copilot-stacks.md

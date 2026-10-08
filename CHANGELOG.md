@@ -26,6 +26,10 @@ All notable changes to this project are documented here. The format follows
   one), its roles, and the EFS access point on the environment's managed file system.
 - Read-only live reads for Step Functions state machines (DescribeStateMachine, tags).
 
+- A guide per Copilot workload type (issue #7): what ecsodus imports, what it cleans up, and what
+  to watch for, for Load Balanced Web, Backend and Worker Services and Scheduled Jobs, and what
+  to do with Request-Driven Web Services and Static Sites, which stay on Copilot.
+
 ### Changed
 - The docs no longer list sidecars as blocked: task definitions with sidecar containers have
   always been imported as deployed.

@@ -70,5 +70,8 @@ Every block in the runbook is fail-fast: if a check fails, the mutation after it
 - **Detected and kept on Copilot** (reported, never dropped): Request-Driven Web Services,
   Static Sites, NLB, CloudFront, pipelines, and multi-account environments.
 
+Each workload type has its own page, with what is imported and what to watch for:
+[workload types](workloads/index.md).
+
 See [how it works](guides/how-it-works.md) for the fates, the atomic per-stack hand-off and the
 checks, and the [AWS end-to-end report](e2e/2026-09-30-aws-e2e.md) for evidence.

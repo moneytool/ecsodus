@@ -130,6 +130,7 @@ and the [FAQ](https://moneytool.github.io/ecsodus/faq/).
 - [AWS end-to-end report](docs/e2e/2026-09-30-aws-e2e.md): the real run (passed)
 - [Worked example](docs/examples/): REPORT.md and RUNBOOK.md for a real Copilot app
 - [Quickstart](docs/guides/quickstart.md)
+- [Workload types](docs/workloads/index.md): what ecsodus does with each Copilot workload type
 - [How it works](docs/guides/how-it-works.md): fates, hand-off, retain patches and the checks
 - [Copilot custom resources and what their Delete handlers do](docs/knowledge/copilot-custom-resources.md)
 - [Copilot stack layering](docs/knowledge/copilot-stacks.md)
