@@ -3,4 +3,4 @@
 ecsodus is read-only: it inventories, reports and generates files. It never changes AWS.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"

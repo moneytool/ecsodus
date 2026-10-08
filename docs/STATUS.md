@@ -1,6 +1,6 @@
-# Status: v0.1.2 released (2026-09-30); Worker Services and Scheduled Jobs in review (unreleased)
+# Status: v0.2.0 (2026-10-07)
 
-## Unreleased: Worker Services (ADR-0014)
+## v0.2.0: Worker Services (ADR-0014)
 
 - Worker Services hand off, including the backlog-per-task Lambda their queue-depth scaling
   depends on. The synthetic full-hand-off app now has a Worker Service: four stacks, 114–117
@@ -8,7 +8,7 @@
   SNS subscription blocks plan as pure imports against a local moto server.
 - Not yet run on real AWS (the import-only gate guards that).
 
-## Unreleased: Scheduled Jobs (ADR-0015)
+## v0.2.0: Scheduled Jobs (ADR-0015)
 
 - Scheduled Jobs hand off: the Events rule and its role-assuming target, the Step Functions
   state machine (definition substituted exactly and checked against the live definition), and

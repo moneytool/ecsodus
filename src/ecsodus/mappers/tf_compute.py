@@ -960,7 +960,9 @@ def lb(ctx: Ctx) -> TfSpec:
     scheme = ctx.r("Scheme", "internet-facing")
     lb_type = ctx.r("Type", "application")
     if lb_type != "application":
-        raise Unresolvable(f"load balancer type {lb_type} is blocked in v0.1")
+        # Network Load Balancers (Copilot's `nlb` section) stay on Copilot until a migration of
+        # one has been exercised; their stack is kept.
+        raise Unresolvable(f"load balancer type {lb_type} is not supported yet")
     for key, tmpl in (("Scheme", scheme), ("Type", lb_type)):
         if key in ctx.live and ctx.live[key] != tmpl:
             raise Unresolvable(f"{key} {tmpl} != live {ctx.live[key]}")

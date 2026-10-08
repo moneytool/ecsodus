@@ -787,3 +787,11 @@ def test_listener_rule_does_not_inherit_stack_tags():
     assert "tags" not in args(spec_of(run(inv, stack, "HTTPSListenerRule")))
     inv.live[rule]["Tags"] = [{"Key": "team", "Value": "web"}]
     assert args(spec_of(run(inv, stack, "HTTPSListenerRule")))["tags"] == {"team": "web"}
+
+
+def test_network_load_balancer_is_blocked():
+    """An LBWS with an `nlb` section stays on Copilot (pinned: the docs promise it)."""
+    inv, stack = load("workloads/svc-nlb-test.stack.yml")
+    pid = stack.resource("PublicNetworkLoadBalancerV2").physical_id  # type: ignore[union-attr]
+    inv.live[pid or ""] = {"LoadBalancerName": "my-app-test-fe-nlb", "Attributes": []}
+    blocked(run(inv, stack, "PublicNetworkLoadBalancerV2"), "type network is not supported")

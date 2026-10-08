@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
+Two more Copilot workload types hand off: Worker Services and Scheduled Jobs. Both are checked
+offline (synthetic full hand-off, `terraform validate`, and `terraform plan` against moto for
+the new resource types) but not yet on a real AWS account; the import-only gate stops a
+migration if a real account plans any change.
+
 ### Added
 - Worker Services hand off (issue #4, ADR-0014). Their SQS queues, KMS key, SNS subscriptions
   (`aws_sns_topic_subscription`) and the backlog-per-task calculator that drives queue-depth
@@ -14,18 +21,16 @@ All notable changes to this project are documented here. The format follows
   `aws_cloudwatch_event_target` and `aws_lambda_permission`.
 - One CloudFormation resource can now import several Terraform resources (an Events rule and
   its targets); each one is checked by the import-only gate.
-- The inventory records exports of stacks outside the app that its templates name literally
-  (for example an EFS file system mounted from another stack), so `Fn::ImportValue` on them
-  resolves.
+- The inventory records exports of stacks outside the app that its templates import by a
+  literal `Fn::ImportValue` name (for example an EFS file system mounted from another stack), so
+  those imports resolve. No other export in the account is recorded.
 - Read-only live reads for Events rules, Lambda tags and policy statement ids, and SNS
   subscription attributes. `lambda:GetFunction` stays forbidden.
-
 - Scheduled Jobs hand off (issue #5, ADR-0015): the schedule (`aws_cloudwatch_event_rule` and a
   target that assumes a role), the Step Functions state machine that runs the task
   (`aws_sfn_state_machine`, its definition substituted exactly and checked against the live
   one), its roles, and the EFS access point on the environment's managed file system.
 - Read-only live reads for Step Functions state machines (DescribeStateMachine, tags).
-
 - A guide per Copilot workload type (issue #7): what ecsodus imports, what it cleans up, and what
   to watch for, for Load Balanced Web, Backend and Worker Services and Scheduled Jobs, and what
   to do with Request-Driven Web Services and Static Sites, which stay on Copilot.
@@ -33,10 +38,14 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - The docs no longer list sidecars as blocked: task definitions with sidecar containers have
   always been imported as deployed.
+- Network Load Balancers stay blocked (their stack is kept on Copilot), now pinned by a test and
+  with a clearer reason in the report.
 
 ### Fixed
 - An ECS service whose `ServiceRegistries`, `LoadBalancers` or `CapacityProviderStrategy` is
   `!Ref AWS::NoValue` no longer crashes the planner.
+- An Events rule whose `Targets` is switched off with `Fn::If` / `AWS::NoValue` imports without
+  targets instead of aborting the plan.
 
 ## [0.1.2] - 2026-09-30
 
@@ -115,7 +124,8 @@ First public release. It was verified end to end on real AWS against a Copilot v
 - Two independent code reviews and a verification review; every P0 and P1 finding is fixed
   (`docs/council/code-review-v0.1/`).
 
-[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/moneytool/ecsodus/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.1
 [0.1.0]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.0
