@@ -26,8 +26,14 @@ WORKLOAD = "workload"
 ADDONS = "addons"  # nested addons stack under a workload stack
 ENV_ADDONS = "env-addons"  # nested addons stack under an env stack
 
-# Workload types supported in v0.1 (PLAN §3). Everything else is detected and blocked.
-SUPPORTED_WORKLOAD_TYPES = ("Load Balanced Web Service", "Backend Service")
+# Workload types ecsodus can hand off (PLAN §3, ADR-0014). Everything else is detected and
+# blocked.
+SUPPORTED_WORKLOAD_TYPES = (
+    "Load Balanced Web Service",
+    "Backend Service",
+    "Worker Service",
+    "Scheduled Job",
+)
 
 
 @dataclass
@@ -106,6 +112,9 @@ class Inventory:
     live: dict[str, dict[str, Any]] = field(default_factory=dict)  # physical id -> attributes
     out_of_band: list[OutOfBand] = field(default_factory=list)
     ssm_parameters: list[dict[str, str]] = field(default_factory=list)  # name, type (no values)
+    # Exports of stacks outside the app that its templates import (Fn::ImportValue), for
+    # example a shared EFS file system: export name -> {"value", "stack"}.
+    external_exports: dict[str, dict[str, str]] = field(default_factory=dict)
     disputed: list[dict[str, Any]] = field(default_factory=list)
     unavailable: list[dict[str, Any]] = field(default_factory=list)
     # How the inventory was taken, replayed by the runbook (envs, keep_on_copilot, profile...).
@@ -155,6 +164,7 @@ class Inventory:
             live=dict(data.get("live", {})),
             out_of_band=[OutOfBand(**o) for o in data.get("out_of_band", [])],
             ssm_parameters=list(data.get("ssm_parameters", [])),
+            external_exports=dict(data.get("external_exports", {})),
             disputed=list(data.get("disputed", [])),
             unavailable=list(data.get("unavailable", [])),
             selection=dict(data.get("selection", {})),

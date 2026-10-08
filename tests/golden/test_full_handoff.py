@@ -1,10 +1,11 @@
 """Golden integration test: a realistic Copilot app hands off completely.
 
 The app is built from verbatim Copilot renders (env stack, a Load Balanced Web Service and its
-addons nested stack) with live reads synthesised in the exact shape ``ecsodus inventory`` records
-them (see ``live_synth``). With complete, consistent live data nothing may be blocked: every stack
-hands off, the closure holds, ``ecsodus generate`` succeeds, the retain patches verify, and the
-generated Terraform passes ``terraform validate`` against the real AWS provider schema.
+addons nested stack, a Worker Service, a Scheduled Job) with live reads synthesised in the
+exact shape ``ecsodus inventory`` records them (see ``live_synth``). With complete, consistent
+live data nothing may be blocked: every stack hands off, the closure holds, ``ecsodus generate``
+succeeds, the retain patches verify, and the generated Terraform passes ``terraform validate``
+against the real AWS provider schema.
 
 Two addons variants run: S3 + DynamoDB (snapshot ``full-handoff-imports.txt``) and Aurora
 Serverless v2 (snapshot ``full-handoff-aurora-imports.txt``). Snapshots list every
@@ -43,15 +44,18 @@ SNAPSHOTS = {
     "s3-ddb": GOLDEN / "full-handoff-imports.txt",
     "aurora": GOLDEN / "full-handoff-aurora-imports.txt",
 }
-STACKS = {app.ENV_STACK, app.SVC_STACK, app.ADDONS_STACK}
+STACKS = {app.ENV_STACK, app.SVC_STACK, app.ADDONS_STACK, app.WORKER_STACK, app.JOB_STACK}
 
 # Every resource's fate, per variant. Nothing is blocked or kept; the only non-imports are the
 # Copilot custom-resource handles and their Lambdas (manual-cleanup, retained by the patch),
 # the Aurora SecretTargetAttachment (manual-cleanup: no Terraform resource, PLAN §13.8) and the
-# addons wrapper (nested-wrapper: its child stack is handed off itself).
+# addons wrapper (nested-wrapper: its child stack is handed off itself). The worker adds 51
+# imports (50 resources plus the Events rule's target) and 4 manual-cleanup handles. The job
+# adds 13 imports (with its rule's target) and 2 handles, and turns on the env's managed EFS
+# (5 more env imports).
 EXPECTED_FATES = {
-    "s3-ddb": {IMPORT: 63, MANUAL_CLEANUP: 11, NESTED_WRAPPER: 1},
-    "aurora": {IMPORT: 66, MANUAL_CLEANUP: 12, NESTED_WRAPPER: 1},
+    "s3-ddb": {IMPORT: 132, MANUAL_CLEANUP: 17, NESTED_WRAPPER: 1},
+    "aurora": {IMPORT: 135, MANUAL_CLEANUP: 18, NESTED_WRAPPER: 1},
 }
 # Imports whose Terraform arguments cannot cover everything the template sets, by design: the
 # covering resources are separate in provider 6.x and listed in the resource's notes.
@@ -63,6 +67,15 @@ EXPECTED_PARTIAL = {
         f"{app.SVC_STACK}/ExecutionRole",
         f"{app.SVC_STACK}/EnvControllerRole",
         f"{app.SVC_STACK}/RulePriorityFunctionRole",
+        f"{app.WORKER_STACK}/ExecutionRole",
+        f"{app.WORKER_STACK}/AutoScalingRole",
+        f"{app.WORKER_STACK}/BacklogPerTaskCalculatorRole",
+        f"{app.WORKER_STACK}/DynamicDesiredCountFunctionRole",
+        f"{app.WORKER_STACK}/EnvControllerRole",
+        f"{app.JOB_STACK}/ExecutionRole",
+        f"{app.JOB_STACK}/EnvControllerRole",
+        # EFS backup policy and file-system policy -> aws_efs_* resources
+        f"{app.ENV_STACK}/FileSystem",
         # bucket sub-configurations -> aws_s3_bucket_* resources
         f"{app.ADDONS_STACK}/assetsBucket",
     },
@@ -105,15 +118,30 @@ def test_every_stack_hands_off(variant: str, built: tuple[Inventory, MigrationPl
     assert not [r for r in plan.resources if r.fate == RETAIN_UNDER_EXISTING_OWNER]
     assert plan.closure_errors == []
     assert plan.fate_counts() == EXPECTED_FATES[variant]
-    # All three stacks are torn down, children before parents, env last.
-    assert plan.teardown == [app.SVC_STACK, app.ADDONS_STACK, app.ENV_STACK]
+    # Every stack is torn down: workloads, then the addons child, env last.
+    assert plan.teardown == [
+        app.WORKER_STACK,
+        app.SVC_STACK,
+        app.JOB_STACK,
+        app.ADDONS_STACK,
+        app.ENV_STACK,
+    ]
     assert plan.teardown_stops_at is None
-    assert plan.workload_status == {f"{app.ENV}/{app.SVC}": "migrating"}
+    assert plan.workload_status == {
+        f"{app.ENV}/{app.SVC}": "migrating",
+        f"{app.ENV}/{app.WORKER}": "migrating",
+        f"{app.ENV}/{app.JOB}": "migrating",
+    }
 
 
 def test_every_created_resource_has_a_fate(built: tuple[Inventory, MigrationPlan]) -> None:
     inv, plan = built
     planned = {(r.stack, r.logical_id) for r in plan.resources}
+    # Companion imports (an Events rule's targets) are planned rows of their own.
+    assert (
+        app.WORKER_STACK,
+        "BacklogPerTaskScheduledRule/target_BacklogPerTaskCalculatorFunctionTrigger",
+    ) in planned
     for stack in inv.stacks.values():
         for res in stack.resources:
             assert (stack.name, res.logical_id) in planned
@@ -162,6 +190,58 @@ def test_live_values_reach_the_terraform(built: tuple[Inventory, MigrationPlan])
         "DenyIAM",
         "Publish2SNS",
     ]
+
+
+def test_worker_service_imports(built: tuple[Inventory, MigrationPlan]) -> None:
+    """ADR-0014: everything a Worker Service runs on is imported, including the backlog
+    calculator its queue-depth scaling depends on."""
+    _, plan = built
+    w = {r.logical_id: r for r in plan.resources if r.stack == app.WORKER_STACK}
+    fn = w["BacklogPerTaskCalculatorFunction"]
+    assert fn.fate == IMPORT and fn.tf_address and fn.tf_address.startswith("aws_lambda_function.")
+    body = dict(fn.spec.body) if fn.spec else {}
+    assert body["function_name"] == app.BACKLOG_FN
+    assert body["s3_bucket"] == app.CODE_BUCKET
+    env = dict(body["environment"].body)["variables"]
+    assert env["CLUSTER_NAME"] == app.CLUSTER and env["SERVICE_NAME"] == app.WORKER_SVC_ARN
+    assert env["QUEUE_NAMES"].split(",")[0].startswith(f"{app.WORKER_STACK}-EventsQueue-")
+    perm = w["PermissionToInvokeBacklogPerTaskCalculatorLambda"]
+    assert perm.spec and perm.spec.import_id == f"{app.BACKLOG_FN}/{app.BACKLOG_SID}"
+    rule = w["BacklogPerTaskScheduledRule"]
+    assert rule.spec and rule.spec.import_id == app.BACKLOG_RULE
+    target = w["BacklogPerTaskScheduledRule/target_BacklogPerTaskCalculatorFunctionTrigger"]
+    assert target.spec and target.spec.tf_type == "aws_cloudwatch_event_target"
+    assert target.spec.import_id == f"{app.BACKLOG_RULE}/BacklogPerTaskCalculatorFunctionTrigger"
+    subs = [r for r in w.values() if r.type == "AWS::SNS::Subscription"]
+    assert len(subs) == 5 and all(r.fate == IMPORT for r in subs)
+    # The handlers stay manual-cleanup; the EFS volumes resolved through the external export.
+    assert w["DynamicDesiredCountFunction"].fate == MANUAL_CLEANUP
+    assert w["EnvControllerFunction"].fate == MANUAL_CLEANUP
+    assert app.SHARED_FS in repr(w["TaskDefinition"].spec.body if w["TaskDefinition"].spec else "")
+    policy = dict(w["AutoScalingPolicyEventsQueue"].spec.body)  # type: ignore[union-attr]
+    assert policy["name"].startswith(f"{app.WORKER}-BacklogPerTask-{app.WORKER_STACK}-EventsQueue")
+
+
+def test_scheduled_job_imports(built: tuple[Inventory, MigrationPlan]) -> None:
+    """ADR-0015: the schedule, the state machine that runs the task, and the EFS access point
+    on the env's managed file system are imported."""
+    _, plan = built
+    j = {r.logical_id: r for r in plan.resources if r.stack == app.JOB_STACK}
+    sm = j["StateMachine"]
+    assert sm.spec and sm.spec.tf_type == "aws_sfn_state_machine"
+    assert sm.spec.import_id == app.STATE_MACHINE
+    body = dict(sm.spec.body)
+    assert body["name"] == app.JOB_STACK
+    definition = str(body["definition"].expr)
+    assert app.JOB_TD_ARN in definition and app.CLUSTER in definition and "${" not in definition
+    target = j["Rule/target_statemachine"]
+    assert target.spec and dict(target.spec.body)["arn"] == app.STATE_MACHINE
+    assert dict(target.spec.body)["role_arn"].endswith(f"role/{j['RuleRole'].physical_id}")
+    rule = dict(j["Rule"].spec.body)  # type: ignore[union-attr]
+    assert rule["schedule_expression"] == "cron(0 12 ? * MON *)"
+    ap = dict(j["AccessPoint"].spec.body)  # type: ignore[union-attr]
+    assert ap["file_system_id"] == app.ENV_IDS["FileSystem"]
+    assert j["EnvControllerFunction"].fate == MANUAL_CLEANUP
 
 
 def plan_body(plan: MigrationPlan, stack: str, lid: str) -> list:

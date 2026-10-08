@@ -13,6 +13,7 @@ the inventory records it in ``inv.disputed`` and never picks one silently.
 from __future__ import annotations
 
 import contextlib
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -364,6 +365,51 @@ def _alarms(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     for chunk in _chunks(ids, 100):
         for a in cw.describe_alarms(AlarmNames=chunk).get("MetricAlarms") or []:
             inv.live[a["AlarmName"]] = a
+
+
+@reader("AWS::Lambda::Function")
+def _functions(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    """Tags and resource-policy statement ids only. GetFunction and GetFunctionConfiguration
+    return environment variables and are forbidden (sources/aws.py)."""
+    lam = clients("lambda")
+    for name in ids:
+        arn = f"arn:aws:lambda:{inv.region}:{inv.account}:function:{name}"
+        entry: dict[str, Any] = {"Tags": lam.list_tags(Resource=arn).get("Tags", {})}
+        try:
+            policy = json.loads(lam.get_policy(FunctionName=name).get("Policy") or "{}")
+            entry["PolicySids"] = [st.get("Sid") for st in policy.get("Statement") or []]
+        except Exception as exc:  # noqa: BLE001 - a function without a policy is normal
+            if "ResourceNotFound" not in f"{type(exc).__name__} {exc}":
+                raise
+            entry["PolicySids"] = []
+        inv.live[name] = entry
+
+
+@reader("AWS::Events::Rule")
+def _event_rules(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    ev = clients("events")
+    for name in ids:
+        rule = _clean(ev.describe_rule(Name=name))
+        rule["Targets"] = paginate(ev, "list_targets_by_rule", "Targets", Rule=name)
+        rule["Tags"] = ev.list_tags_for_resource(ResourceARN=rule["Arn"]).get("Tags", [])
+        inv.live[name] = rule
+
+
+@reader("AWS::StepFunctions::StateMachine")
+def _state_machines(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    sfn = clients("stepfunctions")
+    for arn in ids:
+        sm = _clean(sfn.describe_state_machine(stateMachineArn=arn))
+        sm["tags"] = sfn.list_tags_for_resource(resourceArn=arn).get("tags", [])
+        inv.live[arn] = sm
+
+
+@reader("AWS::SNS::Subscription")
+def _subscriptions(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    sns = clients("sns")
+    for arn in ids:
+        if arn.startswith("arn:"):
+            inv.live[arn] = sns.get_subscription_attributes(SubscriptionArn=arn)["Attributes"]
 
 
 @reader("AWS::Logs::LogGroup")

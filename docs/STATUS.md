@@ -1,4 +1,21 @@
-# Status: v0.1.0 released (2026-09-30)
+# Status: v0.1.2 released (2026-09-30); Worker Services and Scheduled Jobs in review (unreleased)
+
+## Unreleased: Worker Services (ADR-0014)
+
+- Worker Services hand off, including the backlog-per-task Lambda their queue-depth scaling
+  depends on. The synthetic full-hand-off app now has a Worker Service: four stacks, 114–117
+  imports, `terraform validate` clean. The new Lambda, permission, Events rule and target, and
+  SNS subscription blocks plan as pure imports against a local moto server.
+- Not yet run on real AWS (the import-only gate guards that).
+
+## Unreleased: Scheduled Jobs (ADR-0015)
+
+- Scheduled Jobs hand off: the Events rule and its role-assuming target, the Step Functions
+  state machine (definition substituted exactly and checked against the live definition), and
+  the EFS access point on the env's managed file system. The synthetic app now has a job and
+  the env's managed EFS: five stacks, 132–135 imports, `terraform validate` clean.
+- The rule and target plan as pure imports against moto. Moto cannot read state machines
+  (`ListStateMachineVersions` is not implemented), so that import is checked only on real AWS.
 
 ## Done
 
@@ -8,7 +25,7 @@
 - **Commands.** All five plan commands are implemented: `inventory`, `report`, `generate`,
   `check` (`--phase import|steady`, `--state`, `--changeset`, `--template-diff`) and
   `verify-retain`. A sixth, `verify-fresh`, came out of the code review.
-- **Mappers.** 61 CloudFormation resource types map to Terraform, covering the network, compute,
+- **Mappers.** 64 CloudFormation resource types map to Terraform, covering the network, compute,
   data, IAM, DNS and out-of-band families. Unsupported shapes fail closed as `blocked`.
 - **Knowledge base.** The [Copilot knowledge base](knowledge/copilot-custom-resources.md) covers all 13 custom resources
   (9 of them have destructive Delete handlers), the stack layering, and the env conditions.
@@ -50,10 +67,10 @@ Step 5 is always emitted now, and the runbook banner states the verified scope.
 
 ## Known limitations (fail-closed, documented)
 
-- **Unsupported in v0.1:** Worker Services, Scheduled Jobs, RDWS, Static Sites, NLB, CloudFront,
-  sidecars, pipelines, and Transform or `Fn::ForEach` templates. (Service Connect is imported
-  as deployed, per ADR-0011.) Each is
-  detected, reported, and kept on Copilot.
+- **Unsupported:** RDWS, Static Sites, NLB, CloudFront, pipelines, and Transform or
+  `Fn::ForEach` templates. Each is detected, reported, and kept on Copilot. (Service Connect is
+  imported as deployed, per ADR-0011; sidecar containers are imported with their task
+  definition.)
 - **Partial imports:** some imports are generated with notes, where a sub-resource is a separate
   Terraform resource (S3 bucket sub-configurations, IAM managed-policy attachments, cluster
   capacity providers). `check --phase import` flags any difference.

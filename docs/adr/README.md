@@ -15,5 +15,7 @@
 | [0011](0011-service-connect-adopt-in-place.md) | Import Service Connect as deployed in adopt-in-place |
 | [0012](0012-remove-teardown-gate.md) | Remove the teardown gate (supersedes part of 0008) |
 | [0013](0013-public-release.md) | Public repository and PyPI release (supersedes 0009) |
+| [0014](0014-worker-services.md) | Worker Services hand off; the backlog calculator is imported |
+| [0015](0015-scheduled-jobs.md) | Scheduled Jobs hand off; the state machine is imported as deployed |
 
 To add one, copy [0000-template.md](0000-template.md).

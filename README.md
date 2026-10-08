@@ -99,15 +99,19 @@ ecsodus report says so first.
 ## Scope (v0.1)
 
 **Supported:**
-- Load Balanced Web Services and Backend Services
+- Load Balanced Web Services, Backend Services and Worker Services (queues, SNS subscriptions
+  and the backlog-based autoscaling they depend on)
+- Scheduled Jobs (the schedule, the Step Functions state machine that runs the task, and
+  its roles)
+- sidecar containers and EFS volumes (Copilot-managed or another stack's file system)
+- Copilot's default Service Connect, imported as deployed
 - their environment (created or imported VPC)
 - workload and environment addons: Aurora/RDS, DynamoDB, S3
 - aliases and custom domains
 - the app stack and StackSet
 
-**Detected and reported as blocked:** Worker Services, Scheduled Jobs, Request-Driven Web
-Services, Static Sites, NLB, CloudFront, sidecars, Service Connect, pipelines and multi-account
-environments.
+**Detected and reported as blocked:** Request-Driven Web Services, Static Sites, NLB,
+CloudFront, pipelines and multi-account environments.
 
 **Planned:**
 - **v0.2:** App Runner, with a rebuild-in-parallel mode
