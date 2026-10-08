@@ -28,7 +28,12 @@ ENV_ADDONS = "env-addons"  # nested addons stack under an env stack
 
 # Workload types ecsodus can hand off (PLAN §3, ADR-0014). Everything else is detected and
 # blocked.
-SUPPORTED_WORKLOAD_TYPES = ("Load Balanced Web Service", "Backend Service", "Worker Service")
+SUPPORTED_WORKLOAD_TYPES = (
+    "Load Balanced Web Service",
+    "Backend Service",
+    "Worker Service",
+    "Scheduled Job",
+)
 
 
 @dataclass

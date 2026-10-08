@@ -246,3 +246,21 @@ def test_subscription_attributes_read(aws) -> None:
     live.READERS["AWS::SNS::Subscription"](Clients(aws), inv, [sub, "pending confirmation"])
     assert inv.live[sub]["RawMessageDelivery"] == "true"
     assert "pending confirmation" not in inv.live
+
+
+def test_state_machine_read(aws) -> None:
+    from ecsodus.model import Inventory
+    from ecsodus.sources import live
+
+    sfn = aws.client("stepfunctions")
+    definition = json.dumps({"StartAt": "Done", "States": {"Done": {"Type": "Succeed"}}})
+    arn = sfn.create_state_machine(
+        name="shop-test-job",
+        definition=definition,
+        roleArn="arn:aws:iam::123456789012:role/sm",
+        tags=[{"key": "copilot-service", "value": "job"}],
+    )["stateMachineArn"]
+    inv = Inventory(app="shop", account="123456789012", region=REGION, captured_at="now")
+    live.READERS["AWS::StepFunctions::StateMachine"](Clients(aws), inv, [arn])
+    assert json.loads(inv.live[arn]["definition"]) == json.loads(definition)
+    assert inv.live[arn]["tags"] == [{"key": "copilot-service", "value": "job"}]

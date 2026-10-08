@@ -39,7 +39,7 @@ def test_full_handoff() -> None:
 
 
 def test_unsupported_workload_type_keeps_env_and_app() -> None:
-    plan = build_plan(app(worker_type="Scheduled Job"))
+    plan = build_plan(app(worker_type="Request-Driven Web Service"))
     assert not plan.stacks["demo-test-worker"].handoff
     assert not plan.stacks["demo-test"].handoff
     assert not plan.stacks["demo-infrastructure-roles"].handoff
@@ -114,7 +114,7 @@ def test_independent_env_not_truncated_by_kept_env() -> None:
     env2.name, env2.env = "demo-zprod", "zprod"
     inv.stacks[env2.name] = env2
     inv.envs.append("zprod")
-    inv.stacks["demo-test-worker"].workload_type = "Scheduled Job"  # keeps env "test"
+    inv.stacks["demo-test-worker"].workload_type = "Request-Driven Web Service"  # keeps env "test"
     plan = build_plan(inv)
     assert not plan.stacks["demo-test"].handoff
     assert plan.stacks["demo-zprod"].handoff
@@ -146,8 +146,8 @@ def test_out_of_band_certificate_gets_a_fate() -> None:
     plan = build_plan(inv)
     cert = [r for r in plan.resources if r.physical_id == arn][0]
     assert cert.fate == IMPORT and cert.spec.tf_type == "aws_acm_certificate"
-    kept = build_plan(app(worker_type="Scheduled Job"))
-    inv2 = app(worker_type="Scheduled Job")
+    kept = build_plan(app(worker_type="Request-Driven Web Service"))
+    inv2 = app(worker_type="Request-Driven Web Service")
     inv2.out_of_band.append(
         OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", {"DomainName": "api.example.com"})
     )

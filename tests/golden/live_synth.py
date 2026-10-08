@@ -40,6 +40,10 @@ App layout (app ``my-app``, env ``test``):
   Connect, and two EFS volumes from a file system another stack exports as
   ``stack-fs-12345``). Copilot uploads custom-resource code at deploy time, so the deployed
   template's Lambdas carry ``Code`` (S3) that the render lacks; it is added here.
+* ``my-app-test-job``: Scheduled Job (the job-test render: a cron Events rule that assumes a
+  role to start a Step Functions state machine, which runs the task; an nginx sidecar; an EFS
+  access point on the environment's managed file system, which the env creates because
+  ``EFSWorkloads`` names the job; secrets and a value imported from other stacks' exports).
 """
 
 from __future__ import annotations
@@ -134,7 +138,7 @@ ENV_PARAMS = {
     "EnvironmentName": ENV,
     "ALBWorkloads": SVC,
     "InternalALBWorkloads": "",
-    "EFSWorkloads": "",
+    "EFSWorkloads": "job",
     "NATWorkloads": SVC,
     "AppRunnerPrivateWorkloads": "",
     "ToolsAccountPrincipalARN": f"arn:aws:iam::{ACCOUNT}:root",
@@ -198,6 +202,11 @@ ENV_IDS: dict[str, str] = {
     "HTTPSCert": CERT_ARN,
     "CustomDomainAction": f"{ENV_STACK}-CustomDomainAction-MnO5",
     "LogResourcePolicy": f"{ENV_STACK}-LogResourcePolicy",
+    "FileSystem": "fs-0a1b2c3d4e5f60081",
+    "EFSSecurityGroup": "sg-0a1b2c3d4e5f60104",
+    "EFSSecurityGroupIngressFromEnvironment": "sgr-0a1b2c3d4e5f60204",
+    "MountTarget1": "fsmt-0a1b2c3d4e5f60091",
+    "MountTarget2": "fsmt-0a1b2c3d4e5f60092",
 }
 
 SVC_IDS: dict[str, str] = {
@@ -706,6 +715,30 @@ def env_live(inv: Inventory, env: Stack) -> dict[str, dict[str, Any]]:
         live[rule["SecurityGroupRuleId"]] = rule
     for lid in ("CloudformationExecutionRole", "EnvironmentManagerRole", "CustomResourceRole"):
         live[ENV_IDS[lid]] = _role(inv, env, lid)
+    efs_rule = _peer_rule(
+        ENV_IDS["EFSSecurityGroupIngressFromEnvironment"],
+        ENV_IDS["EFSSecurityGroup"],
+        SG_ENV,
+        "Ingress from containers in the Environment Security Group.",
+    )
+    live[ENV_IDS["EFSSecurityGroup"]] = _sg(
+        ENV_IDS["EFSSecurityGroup"],
+        f"{ENV_STACK}-EFSSecurityGroup-2WSX3EDC4RFV",
+        f"{APP}-{ENV}EFSSecurityGroup",
+        tag_map(inv, env, "EFSSecurityGroup"),
+        [efs_rule],
+        "sgr-0a1b2c3d4e5f60224",
+    )
+    live[efs_rule["SecurityGroupRuleId"]] = efs_rule
+    live[ENV_IDS["FileSystem"]] = {
+        "FileSystemId": ENV_IDS["FileSystem"],
+        "Encrypted": True,
+        "KmsKeyId": f"arn:aws:kms:{ARN}:key/3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+        "PerformanceMode": "generalPurpose",
+        "ThroughputMode": "bursting",
+        "LifeCycleState": "available",
+        "Tags": tags("FileSystem"),
+    }
     return live
 
 
@@ -1040,10 +1073,11 @@ _WORKER_ROLES = (
 )
 
 
-def _with_lambda_code(text: str) -> str:
+def _with_lambda_code(text: str, functions: tuple[str, ...] = tuple(CUSTOM_RESOURCE_CODE)) -> str:
     """The deployed template: Copilot fills each custom-resource Lambda's ``Code`` with the S3
     object it uploaded (internal/pkg/deploy/cloudformation, ``CustomResources``)."""
-    for lid, folder in CUSTOM_RESOURCE_CODE.items():
+    for lid in functions:
+        folder = CUSTOM_RESOURCE_CODE[lid]
         head = f"  {lid}:\n"
         start = text.index(head)
         props = text.index("    Properties:\n", start) + len("    Properties:\n")
@@ -1255,6 +1289,115 @@ def add_worker(inv: Inventory) -> Stack:
     return worker
 
 
+# -- Scheduled Job -----------------------------------------------------------------------------
+JOB = "job"
+JOB_STACK = f"{APP}-{ENV}-{JOB}"
+JOB_STACK_ID = _stack_arn(JOB_STACK, "11111111-aaaa-4bbb-8ccc-000000000005")
+JOB_TD_ARN = f"arn:aws:ecs:{ARN}:task-definition/{JOB_STACK}:2"
+JOB_RULE = f"{JOB_STACK}-Rule-1A2S3D4F5G6H"
+STATE_MACHINE = f"arn:aws:states:{ARN}:stateMachine:{JOB_STACK}"
+ACCESS_POINT = "fsap-0a1b2c3d4e5f6a7b8"
+JOB_ENV_CONTROLLER = f"{JOB_STACK}-EnvControllerAction-8IK9OL0P"
+JOB_PARAMS = {
+    "ArtifactKeyARN": WORKER_PARAMS["ArtifactKeyARN"],
+    "ContainerImage": f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/{APP}/{JOB}@sha256:"
+    "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+}
+# Exports of stacks outside the app that the job's template imports by literal name.
+JOB_EXTERNAL_EXPORTS = {
+    "stack-SSMGHUserName": f"arn:aws:ssm:{ARN}:parameter/gh-user",
+    "MYDB": "orders",
+    "MyUserDBAccessSecurityGroup1": "sg-0a1b2c3d4e5f60401",
+    "MyUserDBAccessSecurityGroup2": "sg-0a1b2c3d4e5f60402",
+}
+_JOB_ROLES = ("ExecutionRole", "TaskRole", "EnvControllerRole", "RuleRole", "StateMachineRole")
+
+
+def job_ids() -> dict[str, str]:
+    ids = {
+        "LogGroup": f"/copilot/{JOB_STACK}",
+        "EnvControllerAction": JOB_ENV_CONTROLLER,
+        "EnvControllerFunction": f"{JOB_STACK}-EnvControllerFunction-Zx9Cv8",
+        "TaskDefinition": JOB_TD_ARN,
+        "Rule": JOB_RULE,
+        "StateMachine": STATE_MACHINE,
+        "AccessPoint": ACCESS_POINT,
+        "mytopicfifoSNSTopic": f"arn:aws:sns:{ARN}:{JOB_STACK}-mytopic.fifo",
+        "mytopicfifoSNSTopicPolicy": f"{JOB_STACK}-mytopicfifoSNSTopicPolicy-3EDC4RFV",
+    }
+    for lid in _JOB_ROLES:
+        ids[lid] = f"{JOB_STACK}-{lid}-{zlib.crc32(lid.encode()):010d}"[:64]
+    return ids
+
+
+def job_live(inv: Inventory, stack: Stack) -> dict[str, dict[str, Any]]:
+    pid = {r.logical_id: r.physical_id or "" for r in stack.resources}
+    sm = _resolved_props(inv, stack, "StateMachine")
+    definition = sm["DefinitionString"]
+    for key, val in sm["DefinitionSubstitutions"].items():
+        definition = definition.replace("${" + key + "}", str(val))
+    group_arn = sm["LoggingConfiguration"]["Destinations"][0]["CloudWatchLogsLogGroup"]
+    rule = _resolved_props(inv, stack, "Rule")
+    live: dict[str, dict[str, Any]] = {
+        STATE_MACHINE: {
+            "stateMachineArn": STATE_MACHINE,
+            "name": JOB_STACK,
+            "status": "ACTIVE",
+            "definition": definition,
+            "roleArn": sm["RoleArn"],
+            "type": "STANDARD",
+            "loggingConfiguration": {
+                "level": "ALL",
+                "includeExecutionData": True,
+                "destinations": [
+                    {"cloudWatchLogsLogGroup": {"logGroupArn": group_arn["LogGroupArn"]}}
+                ],
+            },
+            "tracingConfiguration": {"enabled": False},
+            "tags": api_tags(tag_map(inv, stack, "StateMachine"), lower=True),
+        },
+        JOB_RULE: {
+            "Name": JOB_RULE,
+            "Arn": f"arn:aws:events:{ARN}:rule/{JOB_RULE}",
+            "ScheduleExpression": stack.parameters["Schedule"],
+            "State": "ENABLED",
+            "EventBusName": "default",
+            "Targets": rule["Targets"],
+            "Tags": api_tags(tag_map(inv, stack, "Rule")),
+        },
+        pid["LogGroup"]: {"logGroupName": pid["LogGroup"], "retentionInDays": 30},
+    }
+    for lid in _JOB_ROLES:
+        live[pid[lid]] = _role(inv, stack, lid)
+    return live
+
+
+def add_job(inv: Inventory) -> Stack:
+    _, job = inventory_from_template(
+        FIXTURES / "rendered/workloads/job-test.stack.yml",
+        stack_name=JOB_STACK,
+        env=ENV,
+        workload=JOB,
+        workload_type="Scheduled Job",
+        params=JOB_PARAMS,
+        app=APP,
+    )
+    job.template_body = _with_lambda_code(job.template_body, ("EnvControllerFunction",))
+    job.stack_id = JOB_STACK_ID
+    job.tags = _copilot_tags(ENV, JOB)
+    job.capabilities = ["CAPABILITY_IAM"]
+    inv.stacks[job.name] = job
+    for name, value in JOB_EXTERNAL_EXPORTS.items():
+        inv.external_exports[name] = {"value": value, "stack": "shared-config"}
+    _place(inv, job, job_ids())
+    # The env controller's outputs are the env stack's own (ManagedFileSystemID here).
+    inv.live[JOB_ENV_CONTROLLER] = {"ManagedFileSystemID": ENV_IDS["FileSystem"]}
+    inv.live.update(job_live(inv, job))
+    inv.live[JOB_TD_ARN] = task_definition_live(inv, job, JOB_TD_ARN)
+    inv.workloads.append(Workload(JOB, "Scheduled Job", ENV))
+    return job
+
+
 # -- assembly ----------------------------------------------------------------------------------
 def _place(inv: Inventory, stack: Stack, ids: dict[str, str]) -> None:
     """Give every created resource its physical ID; drop resources whose Condition is false.
@@ -1388,4 +1531,5 @@ def build_app(addons: str = "s3-ddb") -> Inventory:
     child.outputs, child.exports = stack_outputs(inv, child)
     svc.outputs, svc.exports = stack_outputs(inv, svc)
     add_worker(inv)
+    add_job(inv)
     return inv
