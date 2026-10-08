@@ -17,8 +17,8 @@ Copilot, together with the shared stacks it needs.
 |---|---|---|
 | Load Balanced Web Service | Migrates | [Load Balanced Web Service](load-balanced-web-service.md) |
 | Backend Service | Migrates | [Backend Service](backend-service.md) |
-| Worker Service | Migrates (unreleased, [ADR-0014](../adr/0014-worker-services.md)) | [Worker Service](worker-service.md) |
-| Scheduled Job | Migrates (unreleased, [ADR-0015](../adr/0015-scheduled-jobs.md)) | [Scheduled Job](scheduled-job.md) |
+| Worker Service | Migrates ([ADR-0014](../adr/0014-worker-services.md)) | [Worker Service](worker-service.md) |
+| Scheduled Job | Migrates ([ADR-0015](../adr/0015-scheduled-jobs.md)) | [Scheduled Job](scheduled-job.md) |
 | Request-Driven Web Service | Kept on Copilot | [Request-Driven Web Service](request-driven-web-service.md) |
 | Static Site | Kept on Copilot | [Static Site](static-site.md) |
 

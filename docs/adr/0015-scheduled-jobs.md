@@ -42,9 +42,12 @@ The only custom resource is the env-controller, as with services.
   `terraform validate`.
 - `terraform plan` against moto: the rule and its role-assuming target plan as `2 to import,
   0 to add, 0 to change, 0 to destroy`. Moto does not implement `ListStateMachineVersions`,
-  which the provider calls when it reads a state machine, so that import is unverified offline.
-- Not yet run on real AWS. The import-only gate stops the migration if a real account plans
-  any change.
+  which the provider calls when it reads a state machine, so that import was unverified offline.
+- **Real AWS, 2026-10-07** ([report](../e2e/2026-10-07-aws-e2e-workers-jobs.md)): 63/63 pure
+  imports, every Copilot stack deleted, and the Terraform-owned state machine ran the job
+  successfully afterwards. The run found that the provider compares the definition as text, so
+  the deployed text is now written verbatim, and that `ManagedFileSystemID` must be read from
+  the environment stack's outputs.
 
 ## Consequences
 After the hand-off, Terraform owns the schedule and the state machine. A new task definition

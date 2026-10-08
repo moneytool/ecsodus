@@ -6,7 +6,7 @@
   depends on. The synthetic full-hand-off app now has a Worker Service: four stacks, 114–117
   imports, `terraform validate` clean. The new Lambda, permission, Events rule and target, and
   SNS subscription blocks plan as pure imports against a local moto server.
-- Not yet run on real AWS (the import-only gate guards that).
+- Verified on real AWS on 2026-10-07 ([report](e2e/2026-10-07-aws-e2e-workers-jobs.md)).
 
 ## v0.2.0: Scheduled Jobs (ADR-0015)
 
@@ -14,8 +14,8 @@
   state machine (definition substituted exactly and checked against the live definition), and
   the EFS access point on the env's managed file system. The synthetic app now has a job and
   the env's managed EFS: five stacks, 132–135 imports, `terraform validate` clean.
-- The rule and target plan as pure imports against moto. Moto cannot read state machines
-  (`ListStateMachineVersions` is not implemented), so that import is checked only on real AWS.
+- Verified on real AWS on 2026-10-07 ([report](e2e/2026-10-07-aws-e2e-workers-jobs.md)): 63/63
+  pure imports, teardown, and a successful job run from the Terraform-owned state machine.
 
 ## Done
 

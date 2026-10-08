@@ -8,8 +8,8 @@ description: >-
 
 # Worker Service
 
-**Status: migrates** (unreleased; [ADR-0014](../adr/0014-worker-services.md)). Checked offline
-and against a local AWS mock; not yet run on a real account.
+**Status: migrates** ([ADR-0014](../adr/0014-worker-services.md)). Verified on real AWS
+([2026-10-07 run](../e2e/2026-10-07-aws-e2e-workers-jobs.md)).
 
 A Worker Service (`worker-svc`) reads messages from an SQS queue. Copilot creates an events
 queue, a dead-letter queue, one queue per topic it subscribes to, and SNS subscriptions from

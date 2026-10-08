@@ -8,10 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.2.0] - 2026-10-07
 
-Two more Copilot workload types hand off: Worker Services and Scheduled Jobs. Both are checked
-offline (synthetic full hand-off, `terraform validate`, and `terraform plan` against moto for
-the new resource types) but not yet on a real AWS account; the import-only gate stops a
-migration if a real account plans any change.
+Two more Copilot workload types hand off: Worker Services and Scheduled Jobs, verified on real
+AWS on 2026-10-07 (63/63 pure imports, every Copilot stack deleted, the worker's backlog Lambda
+and the job's state machine still working under Terraform;
+[report](docs/e2e/2026-10-07-aws-e2e-workers-jobs.md)).
 
 ### Added
 - Worker Services hand off (issue #4, ADR-0014). Their SQS queues, KMS key, SNS subscriptions
@@ -46,6 +46,10 @@ migration if a real account plans any change.
   `!Ref AWS::NoValue` no longer crashes the planner.
 - An Events rule whose `Targets` is switched off with `Fn::If` / `AWS::NoValue` imports without
   targets instead of aborting the plan.
+- Found by the AWS run: `GetAtt EnvControllerAction.<output>` resolves from the environment
+  stack's outputs; state machine definitions are written as the deployed text; scalable
+  targets carry the stack tags CloudFormation propagates; SQS queues use the live
+  `MaximumMessageSize` when the template omits it (AWS's default is now 1 MiB).
 
 ## [0.1.2] - 2026-09-30
 
