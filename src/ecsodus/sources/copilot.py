@@ -397,6 +397,8 @@ def _out_of_band(clients: Clients, inv: Inventory) -> list[OutOfBand]:
                 by,
                 {
                     "DomainName": detail.get("DomainName"),
+                    # The provider ignores aws: tags; any other tag must be in the configuration.
+                    "Tags": {k: v for k, v in tags.items() if not k.startswith("aws:")},
                     "SubjectAlternativeNames": detail.get("SubjectAlternativeNames", []),
                     "InUseBy": detail.get("InUseBy", []),
                     "DomainValidationOptions": [

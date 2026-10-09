@@ -28,6 +28,7 @@ from ecsodus.emit.patches import build_patches
 from ecsodus.emit.retain_patch import verify_patch
 from ecsodus.mappers.fates import (
     BLOCKED,
+    EXTERNAL_REFERENCE,
     IMPORT,
     MANUAL_CLEANUP,
     NESTED_WRAPPER,
@@ -52,10 +53,11 @@ STACKS = {app.ENV_STACK, app.SVC_STACK, app.ADDONS_STACK, app.WORKER_STACK, app.
 # addons wrapper (nested-wrapper: its child stack is handed off itself). The worker adds 51
 # imports (50 resources plus the Events rule's target) and 4 manual-cleanup handles. The job
 # adds 13 imports (with its rule's target) and 2 handles, and turns on the env's managed EFS
-# (5 more env imports).
+# (5 more env imports). The certificate's validation CNAME for the root-zone alias
+# ``example.com`` is an external reference: the root zone is not a Copilot zone.
 EXPECTED_FATES = {
-    "s3-ddb": {IMPORT: 132, MANUAL_CLEANUP: 17, NESTED_WRAPPER: 1},
-    "aurora": {IMPORT: 135, MANUAL_CLEANUP: 18, NESTED_WRAPPER: 1},
+    "s3-ddb": {IMPORT: 132, MANUAL_CLEANUP: 17, NESTED_WRAPPER: 1, EXTERNAL_REFERENCE: 1},
+    "aurora": {IMPORT: 135, MANUAL_CLEANUP: 18, NESTED_WRAPPER: 1, EXTERNAL_REFERENCE: 1},
 }
 # Imports whose Terraform arguments cannot cover everything the template sets, by design: the
 # covering resources are separate in provider 6.x and listed in the resource's notes.
@@ -118,6 +120,10 @@ def test_every_stack_hands_off(variant: str, built: tuple[Inventory, MigrationPl
     assert not [r for r in plan.resources if r.fate == RETAIN_UNDER_EXISTING_OWNER]
     assert plan.closure_errors == []
     assert plan.fate_counts() == EXPECTED_FATES[variant]
+    external = [r for r in plan.resources if r.fate == EXTERNAL_REFERENCE]
+    assert [(r.stack, r.logical_id) for r in external] == [
+        (app.ENV_STACK, "out-of-band:" + app.ROOT_VALIDATION_NAME.rstrip(".") + "/CNAME")
+    ]
     # Every stack is torn down: workloads, then the addons child, env last.
     assert plan.teardown == [
         app.WORKER_STACK,
@@ -145,8 +151,13 @@ def test_every_created_resource_has_a_fate(built: tuple[Inventory, MigrationPlan
     for stack in inv.stacks.values():
         for res in stack.resources:
             assert (stack.name, res.logical_id) in planned
-    # The out-of-band objects Copilot's HTTPSCert created are imported with the env stack.
-    oob = {r.type: r for r in plan.resources if r.type.startswith("OutOfBand::")}
+    # The out-of-band objects Copilot's HTTPSCert created are imported with the env stack,
+    # except the root-zone validation record (an external reference, checked above).
+    oob = {
+        r.type: r
+        for r in plan.resources
+        if r.type.startswith("OutOfBand::") and r.fate != EXTERNAL_REFERENCE
+    }
     assert set(oob) == {"OutOfBand::ACM::Certificate", "OutOfBand::Route53::Record"}
     assert all(r.fate == IMPORT and r.stack == app.ENV_STACK for r in oob.values())
 

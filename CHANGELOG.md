@@ -11,6 +11,30 @@ All notable changes to this project are documented here. The format follows
   (as Homebrew does) no longer needs a Rust toolchain. The wheel and sdist contents are
   unchanged.
 
+### Fixed
+- Custom domains (issue #6, offline gap analysis in
+  [docs/e2e/custom-domain-gap-analysis.md](docs/e2e/custom-domain-gap-analysis.md)):
+  - The ACM certificate Copilot's `HTTPSCert` requested is now imported with its
+    `copilot-application`/`copilot-environment` tags. Without them the provider planned to
+    remove the tags, so the import was not pure. An inventory written by an older ecsodus has
+    no certificate tags; the certificate is then blocked until `ecsodus inventory` is re-run.
+  - A record a stack owns through an `AWS::Route53::RecordSetGroup` (Copilot's
+    `LoadBalancerDNSAlias` in the env zone) is no longer imported a second time as an
+    out-of-band record of that zone.
+  - Validation CNAMEs and alias records that Copilot's retained handlers wrote into a zone that
+    is not a Copilot zone (the root domain's, for an alias such as `www.<domain>`) are now
+    listed in the report as external references instead of being silently left unmanaged.
+  - Hosted zone tags are read live (`route53:ListTagsForResource`) instead of being assumed
+    from the stack tags.
+  - The runbook's post-teardown deletion list no longer names custom-resource handles (in
+    either form, `Custom::*` or `AWS::CloudFormation::CustomResource`), and the report says
+    they have nothing to delete. A handle's physical ID can be a live resource
+    Terraform now owns: `HTTPSCert`'s is the certificate ARN, so the old list told the operator
+    to delete the certificate the HTTPS listener uses.
+  - Only a record set the stack actually deployed (its `Condition` true) claims ownership of
+    DNS records, so a false-condition `RecordSetGroup` cannot hide a live record from the
+    out-of-band import.
+
 ## [0.2.0] - 2026-10-07
 
 Two more Copilot workload types hand off: Worker Services and Scheduled Jobs, verified on real

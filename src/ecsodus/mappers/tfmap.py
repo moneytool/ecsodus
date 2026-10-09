@@ -147,11 +147,18 @@ def tf_name(stack: Stack, logical_id: str) -> str:
     return re.sub(r"_+", "_", snake).strip("_")
 
 
+def is_custom_resource(rtype: str) -> bool:
+    """A CloudFormation custom-resource handle, in either type form (``Custom::<Name>`` or
+    ``AWS::CloudFormation::CustomResource``). Handles are not AWS resources; their physical
+    IDs can name live, imported resources (Copilot's HTTPSCert reports the certificate ARN)."""
+    return rtype.startswith("Custom::") or rtype == "AWS::CloudFormation::CustomResource"
+
+
 def map_resource(
     inv: Inventory, stack: Stack, resolver: Resolver, res: Resource, body: dict[str, Any]
 ) -> MapResult:
     rtype = res.type
-    if rtype.startswith("Custom::") or rtype == "AWS::CloudFormation::CustomResource":
+    if is_custom_resource(rtype):
         return NotImported(MANUAL_CLEANUP, "custom-resource handle: retained, then cleaned up")
     if rtype == "AWS::CloudFormation::Stack":
         return NotImported(NESTED_WRAPPER, "nested stack wrapper; its child stack is inventoried")

@@ -28,7 +28,8 @@ App layout (app ``my-app``, env ``test``):
 * ``my-app-test``: env stack (template-with-basic-manifest) with a public ALB, HTTPS listener,
   NAT gateways, delegated DNS and managed aliases, all turned on through its own parameters.
   Its ``HTTPSCert`` custom resource created an ACM certificate and a validation CNAME in the env
-  hosted zone (out-of-band objects).
+  hosted zone (out-of-band objects), plus a validation CNAME for the alias ``example.com`` in
+  the customer's root zone, which is not a Copilot zone (an external reference).
 * ``my-app-test-fe``: Load Balanced Web Service (the svc-staging render: HTTPS on the env ALB,
   an alias record, two target groups, SNS topics; Service Connect is ``Enabled: False``).
 * ``my-app-test-fe-AddonsStack-1ABCDEFGHIJKL``: its nested addons stack, either the S3 bucket +
@@ -108,6 +109,7 @@ ENV_DOMAIN = f"{ENV}.{APP}.example.com"
 ENV_ZONE = "Z0ENVZONE1234567890AB"
 VALIDATION_NAME = f"_0123456789abcdef0123456789abcdef.{ENV_DOMAIN}."
 VALIDATION_VALUE = "_fedcba9876543210fedcba9876543210.abcdefghij.acm-validations.aws."
+ROOT_VALIDATION_NAME = "_00112233445566778899aabbccddeeff.example.com."
 
 
 def tg_arn(name: str, tg_id: str) -> str:
@@ -1456,14 +1458,29 @@ def _certificate() -> OutOfBand:
         {
             "DomainName": ENV_DOMAIN,
             "SubjectAlternativeNames": [ENV_DOMAIN, f"*.{ENV_DOMAIN}", "example.com"],
+            "Tags": {"copilot-application": APP, "copilot-environment": ENV},
             "InUseBy": [LB_ARN],
+            # ACM lists one option per name; the apex and its wildcard share a record.
             "DomainValidationOptions": [
                 {
-                    "DomainName": ENV_DOMAIN,
+                    "DomainName": name,
                     "ResourceRecord": {
                         "Name": VALIDATION_NAME,
                         "Type": "CNAME",
                         "Value": VALIDATION_VALUE,
+                    },
+                }
+                for name in (ENV_DOMAIN, f"*.{ENV_DOMAIN}")
+            ]
+            + [
+                # The alias example.com is in the customer's root zone, which is not a Copilot
+                # zone: inventory never reads it, so this record is an external reference.
+                {
+                    "DomainName": "example.com",
+                    "ResourceRecord": {
+                        "Name": ROOT_VALIDATION_NAME,
+                        "Type": "CNAME",
+                        "Value": "_0f1e2d3c4b5a6978.abcdefghij.acm-validations.aws.",
                     },
                 }
             ],

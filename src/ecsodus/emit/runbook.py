@@ -16,6 +16,7 @@ import shlex
 from ecsodus import __version__
 from ecsodus.emit.patches import PatchSet
 from ecsodus.mappers.fates import MANUAL_CLEANUP, MigrationPlan
+from ecsodus.mappers.tfmap import is_custom_resource
 from ecsodus.model import ADDONS, APP, ENV, ENV_ADDONS, STACKSET_INSTANCE, WORKLOAD
 
 VERIFIED_SCOPE = (
@@ -465,9 +466,20 @@ def render(
             "retained them, and they are now unowned:\n"
         )
         for rp in plan.resources:
-            if rp.fate == MANUAL_CLEANUP and rp.physical_id and rp.stack in plan.teardown:
+            if (
+                rp.fate == MANUAL_CLEANUP
+                and rp.physical_id
+                and rp.stack in plan.teardown
+                and not is_custom_resource(rp.type)
+            ):
                 w(f"- `{rp.type}` `{rp.physical_id}` (from `{rp.stack}/{rp.logical_id}`)")
         w()
+        w(
+            "Custom-resource handles (`Custom::*`, `AWS::CloudFormation::CustomResource`) are not "
+            "AWS resources and are not listed: "
+            "they disappear with their stack. Never delete anything by a handle's physical ID. "
+            "`HTTPSCert`'s is the ARN of the certificate Terraform now owns.\n"
+        )
     else:
         w(
             "Copilot-internal leftovers (custom-resource Lambdas and roles) are listed in "

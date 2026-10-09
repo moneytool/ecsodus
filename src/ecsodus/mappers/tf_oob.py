@@ -17,6 +17,8 @@ from ecsodus.mappers.tfmap import TfSpec
 from ecsodus.model import OutOfBand
 
 SUPPORTED_RECORD_TYPES = {"A", "AAAA", "CNAME", "NS", "MX"}
+CERT_TYPE = "OutOfBand::ACM::Certificate"
+RECORD_TYPE = "OutOfBand::Route53::Record"
 
 
 def _unique(base: str, names: set[str]) -> str:
@@ -34,7 +36,7 @@ def _snake(text: str) -> str:
 
 def plan_certificate(obj: OutOfBand, stack: str, handoff: bool, names: set[str]) -> F.ResourcePlan:
     lid = f"out-of-band:{obj.id.rsplit('/', 1)[-1]}"
-    rtype = "OutOfBand::ACM::Certificate"
+    rtype = CERT_TYPE
     if obj.kind != "acm_certificate":
         return F.ResourcePlan(stack, lid, rtype, obj.id, F.BLOCKED, f"unknown kind {obj.kind}")
     if not handoff:
@@ -50,10 +52,25 @@ def plan_certificate(obj: OutOfBand, stack: str, handoff: bool, names: set[str])
     domain = d.get("DomainName")
     if not domain:
         return F.ResourcePlan(stack, lid, rtype, obj.id, F.BLOCKED, "certificate domain unknown")
+    tags = d.get("Tags")
+    if not isinstance(tags, dict):
+        # Copilot tags every certificate it requests (that is how inventory finds them), and
+        # the provider plans their removal when the configuration has no tags.
+        return F.ResourcePlan(
+            stack,
+            lid,
+            rtype,
+            obj.id,
+            F.BLOCKED,
+            "certificate tags were not read (inventory from an older ecsodus); "
+            "re-run ecsodus inventory",
+        )
     sans = [s for s in d.get("SubjectAlternativeNames") or [] if s != domain]
     body: list = [("domain_name", domain), ("validation_method", "DNS")]
     if sans:
         body.append(("subject_alternative_names", sans))
+    if tags:
+        body.append(("tags", {str(k): str(v) for k, v in tags.items()}))
     spec = TfSpec(
         "aws_acm_certificate",
         obj.id,
@@ -71,7 +88,8 @@ def plan_certificate(obj: OutOfBand, stack: str, handoff: bool, names: set[str])
     )
 
 
-def _record_name(raw: str) -> str:
+def record_name(raw: str) -> str:
+    """A Route 53 record name in the provider's form: lower case, no trailing dot."""
     return raw.rstrip(".").replace("\\052", "*").lower()
 
 
@@ -82,17 +100,17 @@ def plan_zone_records(
     names: set[str],
 ) -> list[F.ResourcePlan]:
     zone_id = (zone.physical_id or "").rsplit("/", 1)[-1]
-    zone_name = _record_name((live.get("HostedZone") or {}).get("Name", ""))
+    zone_name = record_name((live.get("HostedZone") or {}).get("Name", ""))
     out: list[F.ResourcePlan] = []
     for rr in live.get("RecordSets") or []:
-        name, rtype = _record_name(rr.get("Name", "")), rr.get("Type", "")
+        name, rtype = record_name(rr.get("Name", "")), rr.get("Type", "")
         if name == zone_name and rtype in ("SOA", "NS"):
             continue  # managed by the zone itself
         key_type = f"{rtype}|{rr.get('SetIdentifier', '')}"
         if (zone_id.lower(), name, key_type) in owned or (zone_name, name, key_type) in owned:
             continue  # a CloudFormation RecordSet in this zone owns it (mapped with its stack)
         lid = f"out-of-band:{name}/{rtype}"
-        rtype_label = "OutOfBand::Route53::Record"
+        rtype_label = RECORD_TYPE
         set_id = rr.get("SetIdentifier")
         routing = [
             k
