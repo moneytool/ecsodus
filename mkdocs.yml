@@ -47,6 +47,7 @@ markdown_extensions:
 
 exclude_docs: |
   assets/*.tape
+  council/v0.2/plan-r*.md
 
 nav:
   - Home: index.md
@@ -75,8 +76,10 @@ nav:
       - Status: STATUS.md
   - Design:
       - Plan: PLAN.md
+      - "Plan M5: App Runner": PLAN-v0.2.md
       - Decisions (ADRs): adr/README.md
       - Council reviews: council/README.md
+      - "Council reviews: App Runner (M5)": council/v0.2/README.md
       - Code reviews: council/code-review-v0.1/README.md
 
 extra:
