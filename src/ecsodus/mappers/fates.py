@@ -177,9 +177,7 @@ def _classify_lambdas(template: dict[str, Any], rows: list[ResourcePlan]) -> Non
     bodies = template.get("Resources") or {}
     handlers: set[str] = set()
     for body in bodies.values():
-        if str(body.get("Type", "")).startswith("Custom::") or body.get("Type") == (
-            "AWS::CloudFormation::CustomResource"
-        ):
+        if tfmap.is_custom_resource(str(body.get("Type", ""))):
             handlers |= cfn.references((body.get("Properties") or {}).get("ServiceToken"))
     for rp in rows:
         if rp.fate != MANUAL_CLEANUP:
@@ -398,7 +396,7 @@ def _closure(plan: MigrationPlan) -> None:
     cleanup = [
         r
         for r in plan.resources
-        if r.fate == MANUAL_CLEANUP and r.physical_id and not r.type.startswith("Custom::")
+        if r.fate == MANUAL_CLEANUP and r.physical_id and not tfmap.is_custom_resource(r.type)
     ]
     cleanup_lids: dict[str, set[str]] = {}
     for r in cleanup:
@@ -468,6 +466,8 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
     * Route 53 records inside an imported hosted zone that no CloudFormation RecordSet owns
       (alias A records, validation CNAMEs, NS delegations): imported; a record shape ecsodus
       cannot reproduce exactly blocks the zone's stack.
+    * Validation and alias records Copilot wrote into a zone that is not Copilot's (the root
+      domain's): external references, listed in the report (``_unmanaged_dns``).
     """
     from ecsodus.mappers import tf_oob
 
@@ -497,22 +497,32 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
         except cfn.TemplateError:
             continue
         res = Resolver(inv, st, tpl)
-        for body in (tpl.get("Resources") or {}).values():
-            if body.get("Type") != "AWS::Route53::RecordSet":
+        for lid, body in (tpl.get("Resources") or {}).items():
+            rtype = body.get("Type")
+            if rtype not in ("AWS::Route53::RecordSet", "AWS::Route53::RecordSetGroup"):
+                continue
+            # Only a record set the stack actually deployed owns its records: a resource whose
+            # Condition is false, or that DescribeStackResources does not list, owns nothing
+            # and must not hide a live record from the out-of-band import.
+            deployed = st.resource(lid)
+            if deployed is None or not deployed.physical_id:
                 continue
             try:
-                props = res.resolve(body.get("Properties") or {}) or {}
+                if not res.resource_exists(lid):
+                    continue
             except Unresolvable:
                 continue
-            zone = str(props.get("HostedZoneId") or props.get("HostedZoneName") or "")
-            zone = zone.rsplit("/", 1)[-1].rstrip(".").lower()
-            owned_records.add(
-                (
-                    zone,
-                    str(props.get("Name", "")).rstrip(".").lower(),
-                    str(props.get("Type", "")) + "|" + str(props.get("SetIdentifier", "")),
-                )
+            props = body.get("Properties") or {}
+            # A RecordSetGroup's records sit in the group's zone unless they name their own
+            # (Copilot's LoadBalancerDNSAlias is a group in the env zone, and a CloudFormation
+            # record must not be imported a second time as an out-of-band one).
+            records = (
+                props.get("RecordSets") if rtype == "AWS::Route53::RecordSetGroup" else [props]
             )
+            for rec in records if isinstance(records, list) else []:
+                key = _record_key(res, props, rec)
+                if key is not None:
+                    owned_records.add(key)
     for rp in list(plan.imports()):
         if rp.type != "AWS::Route53::HostedZone" or rp.physical_id is None:
             continue
@@ -523,6 +533,93 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
                 sp = plan.stacks[rp.stack]
                 sp.handoff = False
                 sp.kept_because.append(f"out-of-band record blocked: {rp2.reason}")
+    _unmanaged_dns(inv, plan, owned_records)
+
+
+def _record_key(res: Resolver, group: dict[str, Any], rec: Any) -> tuple[str, str, str] | None:
+    """(zone, record name, type|set id) of a template record, or None if it cannot be resolved.
+
+    Only the identifying fields are resolved: an alias target that is not resolvable offline
+    must not hide which record the stack owns.
+    """
+    if not isinstance(rec, dict):
+        return None
+    try:
+        zone_raw = rec.get("HostedZoneId") or rec.get("HostedZoneName")
+        if zone_raw is None:
+            zone_raw = group.get("HostedZoneId") or group.get("HostedZoneName")
+        zone = str(res.resolve(zone_raw) or "")
+        name = str(res.resolve(rec.get("Name", "")) or "")
+        rtype = str(res.resolve(rec.get("Type", "")) or "")
+        set_id = str(res.resolve(rec.get("SetIdentifier", "")) or "")
+    except Unresolvable:
+        return None
+    return (
+        zone.rsplit("/", 1)[-1].rstrip(".").lower(),
+        name.rstrip(".").lower(),
+        f"{rtype}|{set_id}",
+    )
+
+
+def _unmanaged_dns(
+    inv: Inventory, plan: MigrationPlan, owned_records: set[tuple[str, str, str]]
+) -> None:
+    """List Copilot-written DNS records that no imported zone or stack resource covers.
+
+    Copilot's certificate validator and custom-domain handler also write into zones that are
+    not Copilot resources: the customer's root zone ``<domain>``, for an alias such as
+    ``www.<domain>``. Inventory reads only the zones Copilot created, so those records get no
+    Terraform resource. Their handlers are retained, so nothing deletes them; they are listed
+    as external references so the report says who must keep them (ACM renewal needs the
+    validation CNAMEs).
+    """
+    from ecsodus.mappers import tf_oob
+
+    covered = {(name, rtype.split("|", 1)[0]) for _zone, name, rtype in owned_records}
+    for r in plan.resources:
+        if r.type == tf_oob.RECORD_TYPE and r.logical_id.startswith("out-of-band:"):
+            name, _, rtype = r.logical_id.removeprefix("out-of-band:").rpartition("/")
+            covered.add((name, rtype))
+    wanted: list[tuple[str, str, str, str]] = []  # (stack, record name, type, what it is)
+    certs = {r.physical_id: r for r in plan.resources if r.type == tf_oob.CERT_TYPE}
+    for obj in inv.out_of_band:
+        cert = certs.get(obj.id)
+        if cert is None or cert.fate != IMPORT:
+            continue
+        for opt in obj.details.get("DomainValidationOptions") or []:
+            rr = opt.get("ResourceRecord") or {}
+            if rr.get("Name") and rr.get("Type"):
+                what = f"ACM validation record for {opt.get('DomainName')} (certificate {obj.id})"
+                wanted.append((cert.stack, tf_oob.record_name(rr["Name"]), rr["Type"], what))
+    for st in inv.stacks_of(ENV):
+        sp = plan.stacks.get(st.name)
+        if sp is None or not sp.handoff or st.resource("CustomDomainAction") is None:
+            continue
+        try:
+            aliases = json.loads(st.parameters.get("Aliases") or "{}")
+        except ValueError:
+            continue
+        for svc, names in sorted(aliases.items()) if isinstance(aliases, dict) else []:
+            for alias in names if isinstance(names, list) else []:
+                what = f"alias record for {svc}, written by {st.name}/CustomDomainAction"
+                wanted.append((st.name, tf_oob.record_name(str(alias)), "A", what))
+    seen: set[tuple[str, str]] = set()
+    for stack, name, rtype, what in wanted:
+        if (name, rtype) in covered or (name, rtype) in seen:
+            continue
+        seen.add((name, rtype))
+        plan.resources.append(
+            ResourcePlan(
+                stack,
+                f"out-of-band:{name}/{rtype}",
+                tf_oob.RECORD_TYPE,
+                None,
+                EXTERNAL_REFERENCE,
+                f"{what} is in a hosted zone ecsodus does not import (not a Copilot zone, "
+                "such as the root domain's). Its handler is retained, so nothing deletes it, "
+                "but Terraform will not manage it: keep it, or import it yourself.",
+            )
+        )
 
 
 def _side_effects(stack: Stack, template: dict[str, Any], resolver: Resolver) -> list[str]:
@@ -538,7 +635,7 @@ def _side_effects(stack: Stack, template: dict[str, Any], resolver: Resolver) ->
             pass
         rtype = body.get("Type", "")
         policy = body.get("DeletionPolicy", "Delete")
-        if rtype.startswith("Custom::"):
+        if tfmap.is_custom_resource(rtype):
             info = knowledge.CUSTOM_RESOURCES.get(rtype) or {}
             variants = [v for v in info.get("variants", ()) if lid in v.get("logical_ids", ())]
             variants = variants or list(info.get("variants", ()))

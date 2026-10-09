@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import json
+
 from ecsodus.mappers.fates import (
+    EXTERNAL_REFERENCE,
     IMPORT,
     MANUAL_CLEANUP,
     RETAIN_UNDER_EXISTING_OWNER,
     build_plan,
 )
 from tests.synthetic import app
+
+CERT_DETAILS = {
+    "DomainName": "api.example.com",
+    "Tags": {"copilot-application": "demo", "copilot-environment": "test"},
+}
 
 
 def fates(plan, stack):
@@ -140,17 +148,13 @@ def test_out_of_band_certificate_gets_a_fate() -> None:
 
     inv = app()
     arn = "arn:aws:acm:us-west-2:123456789012:certificate/abc"
-    inv.out_of_band.append(
-        OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", {"DomainName": "api.example.com"})
-    )
+    inv.out_of_band.append(OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", CERT_DETAILS))
     plan = build_plan(inv)
     cert = [r for r in plan.resources if r.physical_id == arn][0]
     assert cert.fate == IMPORT and cert.spec.tf_type == "aws_acm_certificate"
     kept = build_plan(app(worker_type="Request-Driven Web Service"))
     inv2 = app(worker_type="Request-Driven Web Service")
-    inv2.out_of_band.append(
-        OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", {"DomainName": "api.example.com"})
-    )
+    inv2.out_of_band.append(OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", CERT_DETAILS))
     plan2 = build_plan(inv2)
     assert [r for r in plan2.resources if r.physical_id == arn][0].fate == (
         RETAIN_UNDER_EXISTING_OWNER
@@ -251,3 +255,137 @@ def test_dns_ownership_is_per_zone() -> None:
     assert [r.fate for r in out] == [IMPORT]
     same_zone_owner = {("z111", "api.example.com", "A|")}
     assert tf_oob.plan_zone_records(zone, live, same_zone_owner, set()) == []
+
+
+def _oob_rows(plan):
+    return {r.logical_id: r for r in plan.resources if r.logical_id.startswith("out-of-band:")}
+
+
+def test_out_of_band_certificate_keeps_copilot_tags() -> None:
+    """Without the tags in the configuration the provider plans their removal (an update)."""
+    from ecsodus.model import OutOfBand
+
+    inv = app()
+    arn = "arn:aws:acm:us-west-2:123456789012:certificate/abc"
+    inv.out_of_band.append(OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", CERT_DETAILS))
+    cert = [r for r in build_plan(inv).resources if r.physical_id == arn][0]
+    assert dict(cert.spec.body)["tags"] == CERT_DETAILS["Tags"]
+
+
+def test_out_of_band_certificate_without_read_tags_is_blocked() -> None:
+    from ecsodus.model import OutOfBand
+
+    inv = app()
+    arn = "arn:aws:acm:us-west-2:123456789012:certificate/abc"
+    inv.out_of_band.append(
+        OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", {"DomainName": "api.example.com"})
+    )
+    plan = build_plan(inv)
+    assert not plan.stacks["demo-test"].handoff
+    assert "re-run ecsodus inventory" in " ".join(plan.stacks["demo-test"].kept_because)
+
+
+def _env_zone(inv) -> None:
+    """Give the synthetic env a delegated hosted zone, exported as Copilot exports it."""
+    env = inv.stacks["demo-test"]
+    env.template_body = env.template_body.replace(
+        "Outputs:\n",
+        "  EnvironmentHostedZone:\n    Type: AWS::Route53::HostedZone\n"
+        "    Properties:\n      Name: test.demo.example.com\n"
+        "      HostedZoneConfig:\n        Comment: env zone\nOutputs:\n",
+    )
+    env.resources.append(
+        type(env.resources[0])("EnvironmentHostedZone", "AWS::Route53::HostedZone", "ZENV1")
+    )
+    env.exports["demo-test-HostedZone"] = "ZENV1"
+    inv.live["ZENV1"] = {
+        "HostedZone": {"Name": "test.demo.example.com.", "Config": {"Comment": "env zone"}},
+        "NameServers": ["ns-1.awsdns-01.org"],
+        "RecordSets": [
+            {"Name": "test.demo.example.com.", "Type": "SOA", "TTL": 900,
+             "ResourceRecords": [{"Value": "soa"}]},
+            # Owned by the api stack's RecordSetGroup (Copilot's LoadBalancerDNSAlias).
+            {"Name": "api.test.demo.example.com.", "Type": "A",
+             "AliasTarget": {"HostedZoneId": "Z1H1FL5HABSF5", "DNSName": "lb.example.",
+                             "EvaluateTargetHealth": False}},
+            # Written by the env CustomDomainAction (out of band).
+            {"Name": "web.test.demo.example.com.", "Type": "A",
+             "AliasTarget": {"HostedZoneId": "Z1H1FL5HABSF5", "DNSName": "lb.example.",
+                             "EvaluateTargetHealth": True}},
+        ],
+    }  # fmt: skip
+
+
+def test_record_set_group_record_is_not_imported_twice() -> None:
+    inv = app()
+    _env_zone(inv)
+    api = inv.stacks["demo-test-api"]
+    api.template_body += (
+        "  LoadBalancerDNSAlias:\n    Type: AWS::Route53::RecordSetGroup\n    Properties:\n"
+        "      HostedZoneId:\n        Fn::ImportValue: !Sub '${AppName}-${EnvName}-HostedZone'\n"
+        "      RecordSets:\n        - Name: !Sub '${WorkloadName}.test.demo.example.com'\n"
+        "          Type: A\n          AliasTarget:\n            HostedZoneId: !GetAtt "
+        "EnvControllerAction.PublicLoadBalancerHostedZone\n            DNSName: !GetAtt "
+        "EnvControllerAction.PublicLoadBalancerDNSName\n"
+    )
+    api.resources.append(
+        type(api.resources[0])("LoadBalancerDNSAlias", "AWS::Route53::RecordSetGroup", "api-alias")
+    )
+    oob = _oob_rows(build_plan(inv))
+    assert "out-of-band:api.test.demo.example.com/A" not in oob  # the stack owns it
+    assert "out-of-band:web.test.demo.example.com/A" in oob  # written by CustomDomainAction
+
+
+def test_undeployed_record_set_group_does_not_claim_a_live_record() -> None:
+    """A RecordSetGroup whose Condition is false (so it was never deployed) owns nothing: the
+    live record it would have described is still imported out of band (review on #27)."""
+    inv = app()
+    _env_zone(inv)
+    api = inv.stacks["demo-test-api"]
+    api.template_body += (
+        "  WebAlias:\n    Type: AWS::Route53::RecordSetGroup\n    Condition: Never\n"
+        "    Properties:\n      HostedZoneId:\n"
+        "        Fn::ImportValue: !Sub '${AppName}-${EnvName}-HostedZone'\n"
+        "      RecordSets:\n        - Name: web.test.demo.example.com\n          Type: A\n"
+        "          AliasTarget:\n            HostedZoneId: Z1H1FL5HABSF5\n"
+        "            DNSName: lb.example\n"
+    )
+    never = "  Never: !Equals [a, b]\n"
+    if "\nConditions:\n" in api.template_body:
+        api.template_body = api.template_body.replace(
+            "\nConditions:\n", "\nConditions:\n" + never, 1
+        )
+    else:
+        api.template_body += "Conditions:\n" + never
+    plan = build_plan(inv)
+    oob = _oob_rows(plan)
+    assert "out-of-band:web.test.demo.example.com/A" in oob
+    assert plan.stacks["demo-test"].handoff and plan.stacks["demo-test-api"].handoff
+
+
+def test_records_in_a_zone_ecsodus_does_not_import_are_external_references() -> None:
+    """Root-zone aliases and their validation CNAMEs are written by retained handlers into a
+    zone that is not Copilot's: reported, never silently dropped."""
+    from ecsodus.model import OutOfBand
+
+    inv = app()
+    _env_zone(inv)
+    inv.stacks["demo-test"].parameters["Aliases"] = json.dumps(
+        {"api": ["web.test.demo.example.com", "www.example.com"]}
+    )
+    details = dict(CERT_DETAILS)
+    details["DomainValidationOptions"] = [
+        {
+            "DomainName": "www.example.com",
+            "ResourceRecord": {"Name": "_abc.www.example.com.", "Type": "CNAME", "Value": "_x."},
+        }
+    ]
+    arn = "arn:aws:acm:us-west-2:123456789012:certificate/abc"
+    inv.out_of_band.append(OutOfBand("acm_certificate", arn, "demo-test/HTTPSCert", details))
+    plan = build_plan(inv)
+    oob = _oob_rows(plan)
+    assert oob["out-of-band:web.test.demo.example.com/A"].fate == IMPORT  # in the env zone
+    for lid in ("out-of-band:www.example.com/A", "out-of-band:_abc.www.example.com/CNAME"):
+        assert oob[lid].fate == EXTERNAL_REFERENCE and oob[lid].stack == "demo-test"
+        assert "does not import" in oob[lid].reason
+    assert plan.stacks["demo-test"].handoff

@@ -191,6 +191,18 @@ def test_app_hosted_zone_keeps_its_comment():
     }
 
 
+def test_hosted_zone_tags_come_from_the_live_read():
+    """Live zone tags win over the stack-tag guess (whether CloudFormation copies stack tags
+    onto a hosted zone is not assumed)."""
+    inv, stack = _dns()
+    stack.tags = {"copilot-application": "demo"}
+    zone = _pid(stack, "AppHostedZone")
+    inv.live[zone] = {"Tags": [{"Key": "owner", "Value": "dns-team"}]}
+    assert _args(_spec(inv, stack, "AppHostedZone"))["tags"] == {"owner": "dns-team"}
+    inv.live[zone] = {"Tags": []}
+    assert "tags" not in _args(_spec(inv, stack, "AppHostedZone"))
+
+
 def test_private_env_hosted_zone_without_comment():
     inv, stack = inventory_from_template(
         RENDERED / "environments" / "template-with-basic-manifest.yml",
