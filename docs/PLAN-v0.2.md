@@ -15,7 +15,8 @@ reviews [gpt-6-astra](council/v0.2/astra.md), [Claude Opus 5.5](council/v0.2/opu
 (both APPROVE WITH NOTES). Round 3: [brief](council/v0.2/brief-r3.md) and votes
 [gpt-6-astra](council/v0.2/astra-r3.md), [Claude Opus 5.5](council/v0.2/opus-r3.md) and
 [Claude Fable 5.1](council/v0.2/fable-r3.md), all APPROVE WITH NOTES. §15, §16 and §17 map every
-round-1, round-2 and round-3 finding to the section that addresses it. This plan extends
+round-1, round-2 and round-3 finding to the section that addresses it; §17 also maps the
+maintainer's review of PR #28 (the `new_host` record is staged after the ALB exists). This plan extends
 [PLAN.md](PLAN.md) r4 (approved) and changes no v0.1 decision. Where it relies on behaviour
 nobody has verified, it says **(UNCONFIRMED)**.*
 
@@ -166,7 +167,8 @@ not copy that. The zone rules come in two parts:
 
 Anything else fails closed. A new hostname for the no-custom-domain branch (`new_host`, §4.9)
 can never meet the adoption rule; it is checked against the zone rules, the CAA check (§4.8 #1)
-and the absence of any record of any type at that name. A zone in another account (a
+and the absence of any record of any type at that name. Its alias record is created only after
+the ALB exists, in its own gated step (§4.8 #4a). A zone in another account (a
 multi-account app, where `AppDNSRole` sits in the app account) is **blocked**, consistent with
 v0.1 ([PLAN.md](PLAN.md) §3).
 
@@ -274,6 +276,7 @@ ecsodus generate  inventory.json --mode rebuild --decisions decisions.yml --out 
                      M5a root), rebuild/staged/taskdef-on.tf (8a, outside the root),
                      rebuild/dns/*.json, rebuild/manifest.json, RUNBOOK.md
 ecsodus generate  ... --stage rebuild     --evidence cert-requested.json (after 2a, before 2b)
+ecsodus generate  ... --stage new-host    --evidence alb-created.json    (after step 4, no custom domain only)
 ecsodus generate  ... --stage worker-on   --evidence taskdef-on.json     (after step 8a)
 ecsodus generate  ... --stage taskdef-off --evidence live-revision.json  (rollback after hand-over)
 ecsodus check     plan.json --phase <phase> --manifest rebuild/manifest.json [--step N] [--rollback]
@@ -284,12 +287,14 @@ ecsodus verify-cutover --manifest rebuild/manifest.json --step <step>   (read-on
 ecsodus stays read-only. It never applies Terraform, never changes DNS, never shifts traffic.
 Every mutation is a runbook step behind a gate.
 
-**Staged generation.** Two values the gates need are computed by AWS at apply time: the new
-certificate's validation record, and the ARN of the task-definition revision that turns
-background work on. ecsodus never gates on an unknown value for them. A small gated phase creates
-the one resource (2a, 8a); a read-only `verify-cutover` step reads the real value and writes an
-evidence file bound to the ARN; `generate --stage` then emits the next phase's HCL and manifest
-entry with that value as a literal. The first `generate` emits only what does not depend on them.
+**Staged generation.** Some values the gates need are computed by AWS at apply time: the new
+certificate's validation record; with no custom domain, the new ALB's DNS name and canonical
+hosted-zone ID, which the `new_host` alias record targets (§4.9); and the ARN of the
+task-definition revision that turns background work on. ecsodus never gates on an unknown value
+for them. A gated phase creates the resource (2a, 3, 8a); a read-only `verify-cutover` step reads
+the real value and writes an evidence file bound to the ARN; `generate --stage` then emits the
+next phase's HCL and manifest entry with that value as a literal. The first `generate` emits only
+what does not depend on them.
 A rollback after hand-over (§4.11) uses the same pattern once more: `verify-cutover --step
 live-revision` binds the live service revision, and `generate --stage taskdef-off` emits its off
 twin.
@@ -327,7 +332,7 @@ the `infra-rebuild` root.** A shared ALB (§4.7) and Express (§4.6) are opt-in.
 | Target group | `aws_lb_target_group` | `ip` targets; health check from §4.4 |
 | ALB | `aws_lb`, listener 443 + 80→443 redirect, ALB SG | `idle_timeout` from the decision (§4.4); the 443 listener takes `aws_acm_certificate_validation.certificate_arn`, so it is created only after the certificate is `ISSUED` |
 | Certificate | `aws_acm_certificate` (step 2a, alone) + validation record if absent + `aws_acm_certificate_validation` (step 3) | see "Validation record" below. `aws_acm_certificate_validation` takes the literal `validation_record_fqdns`, which gives no implicit edge to the created record, so it `depends_on` that record when one is created |
-| `new_host` record (no custom domain only, §4.9) | `aws_route53_record`, alias A to the ALB | created in step 3 with `allow_overwrite = false`; gated on name, type and alias target (§4.8 #3); deleted by the rollback destroy (§4.11) |
+| `new_host` record (no custom domain only, §4.9) | `aws_route53_record`, alias A to the ALB | **not** in step 3. Emitted by `generate --stage new-host` from `alb-created.json` (§4.8 #4), with the ALB's DNS name and canonical hosted-zone ID as literals, `evaluate_target_health = false` and `allow_overwrite = false` emitted explicitly; created alone in step 4a and gated on every one of those values (§4.8 #4a); deleted by the rollback destroy if it exists (§4.11) |
 | Task SG | `aws_security_group` + `aws_vpc_security_group_ingress_rule` | new; ingress only from the ALB SG on the container port |
 | WAF | `aws_wafv2_web_acl_association` | same regional web ACL, on the new ALB; the ACL is `external-reference` |
 
@@ -521,9 +526,11 @@ incomplete plan fails), with the listed actions and after-values; unknown (compu
 gated attribute fail; data sources and other providers fail, as in v0.1. In a create phase only
 the listed after-values are gated; other computed values (ARNs, DNS names, the service's first
 `task_definition`) are allowed because nothing can run at 0/0 and step 4 reads the live values.
-The computed values a later gate depends on, the validation record, the `on` revision's ARN and
-(rollback after hand-over) the off twin's ARN, come in as literals through staged generation
-(§4.2).
+The computed values a later gate depends on, the validation record, (no custom domain) the ALB's
+DNS name and canonical hosted-zone ID, the `on` revision's ARN and (rollback after hand-over) the
+off twin's ARN, come in as literals through staged generation (§4.2). A resource whose gated
+attributes would reference a computed value is never in the phase that creates that value: the
+`new_host` record targets the ALB, so it is not in step 3 but in its own step 4a.
 
 | # | Transition | Root | Gate | Allowed | Fails on |
 |---|---|---|---|---|---|
@@ -532,8 +539,9 @@ The computed values a later gate depends on, the validation record, the `on` rev
 | 2 | prepare | M5a (and, shared ALB, the ALB's root as `prepare-alb`, §4.7) | `check --phase prepare` | update instance role `assume_role_policy` to the exact expected document; update domain record `ttl` to 60 if higher; (shared ALB) `idle_timeout` to the decided value | anything else, including any other attribute on those addresses |
 | 2a | cert-request | `infra-rebuild` | `check --phase cert-request`, then `verify-cutover --step cert-requested` | create of `aws_acm_certificate` only, with the manifest's `domain_name`, `validation_method = "DNS"`, and `subject_alternative_names == [domain_name]` (the provider adds `domain_name` to the SANs at plan time, as ACM does) | anything else, including any other SAN or an empty list. Verify: the §4.3 outcome table; writes `cert-requested.json` |
 | 2b | adopt validation record (only for "present, same value, in neither ecsodus state" with `validation_record: import`, §4.3) | M5a | `check --phase import` | import of exactly that record, emitted by `generate --stage rebuild` | v0.1 import rule; a missing `validation_record` answer blocks generation |
-| 3 | rebuild (create) | `infra-rebuild` | `check --phase rebuild` | creates of exactly the manifest addresses (from `generate --stage rebuild`), plus no-ops of exactly the addresses already in the `infra-rebuild` state (the 2a certificate); `desired_count = 0`; scalable target min = max = 0; validation record (if created) with the literal name and value and `allow_overwrite = false`; (no custom domain) the `new_host` alias A record with the manifest's name, type and ALB alias target and `allow_overwrite = false`; task definition `off` with the off value and `skip_destroy = true`. Live certificate `PENDING_VALIDATION` (or `ISSUED`) and younger than 72 h (§4.3) | any update, delete, replace or import; a no-op of any other address; a create outside the manifest (including `aws_ecs_task_definition.on`, §4.2); any other after-value on those attributes |
-| 4 | created | — | `verify-cutover --step created` | — | live `runningCount`, `pendingCount` or `desiredCount` not 0; scalable target not 0/0; live task definition (`DescribeServices` → `DescribeTaskDefinition`, not Terraform's copy) lacks the background-off value or the pinned digest; certificate not `ISSUED`, not covering the host, or not on the listener; §4.5 checks |
+| 3 | rebuild (create) | `infra-rebuild` | `check --phase rebuild` | creates of exactly the manifest addresses (from `generate --stage rebuild`), plus no-ops of exactly the addresses already in the `infra-rebuild` state (the 2a certificate); `desired_count = 0`; scalable target min = max = 0; validation record (if created) with the literal name and value and `allow_overwrite = false`; task definition `off` with the off value and `skip_destroy = true`. Live certificate `PENDING_VALIDATION` (or `ISSUED`) and younger than 72 h (§4.3). The `new_host` record is not in this phase | any update, delete, replace or import; a no-op of any other address; a create outside the manifest (including `aws_ecs_task_definition.on`, §4.2, and the `new_host` record, which belongs to 4a); any other after-value on those attributes |
+| 4 | created | — | `verify-cutover --step created` | — | live `runningCount`, `pendingCount` or `desiredCount` not 0; scalable target not 0/0; live task definition (`DescribeServices` → `DescribeTaskDefinition`, not Terraform's copy) lacks the background-off value or the pinned digest; certificate not `ISSUED`, not covering the host, or not on the listener; §4.5 checks. With no custom domain also: the ALB ARN in the `infra-rebuild` state is not a live ALB (`DescribeLoadBalancers`) in the manifest's account and region; still no record of any type at `new_host`. It then writes `alb-created.json` (ALB ARN, live `DNSName`, `CanonicalHostedZoneId`, account, region, manifest hash) |
+| 4a | new-host (no custom domain only) | `infra-rebuild` | `check --phase new-host`, then `verify-cutover --step new-host` | create of exactly the manifest's `new_host` record (from `generate --stage new-host --evidence alb-created.json`), plus no-ops of exactly the addresses already in the `infra-rebuild` state, nothing else. The record: `zone_id` the manifest's zone, `name` = `new_host`, `type = "A"`, one `alias` block whose `name` and `zone_id` equal the `DNSName` and `CanonicalHostedZoneId` in `alb-created.json` (normalised to the form the provider stores; lowercase with no trailing dot is UNCONFIRMED and is checked against the pinned provider when the gate is built), `evaluate_target_health = false`, `allow_overwrite = false`. The check re-reads the ALB by its ARN and fails unless its live DNS name and hosted-zone ID still equal the evidence | an unknown value on any of those attributes; another name, type, zone or alias target; `allow_overwrite = true` or absent; `ttl`, `records` or `set_identifier` set; a create, update, delete, replace or import of any other address; a no-op of an address not in the `infra-rebuild` state. Verify: `ListResourceRecordSets` holds exactly one record at `new_host`, the alias A to the evidence target; a public DNS query for `new_host` returns the addresses the ALB's DNS name resolves to |
 | 5 | start | `infra-rebuild` | `check --phase start` | update `min_capacity`/`max_capacity` on the one scalable target to App Runner's `MinSize`/`MaxSize` | anything else |
 | 6 | ready | — | `verify-cutover --step ready` | — | running < `MinSize` or ≠ desired; primary deployment not `COMPLETED` (`FAILED` from the circuit breaker fails); healthy targets < `MinSize` (never vacuous); listener rule not forwarding the host to the TG; TLS handshake with SNI = host fails or the cert does not match; GET on the declared safe path not the expected status; live task definition as in step 4 |
 | 7a | convert to weighted | DNS, then M5a | `check --dns-batch`, then `check --phase import` | one atomic batch (§4.9); then imports of the two weighted records and, for exactly the simple record's manifest address (`removed` block), either a `forget` or a `no-op` with null before and after together with a `resource_drift` delete entry for that address (§4.9 step 5). After apply, `check --state` asserts the address is absent | batch: anything but DELETE of the exact live simple record + CREATE of the two expected weighted records. Import: v0.1 rule, plus a `forget`, null no-op or drift entry for any other address |
@@ -635,16 +643,23 @@ state, not because of a resolution gap. No gradual shift.
 (exact name, public, delegated, same account) and the CAA check; the adoption rule (a CNAME to
 `DNSTarget`) cannot apply to a new name. `pre-create` requires that no record of any type exists
 at `new_host`.
-- **Traffic record.** `infra-rebuild` creates `new_host` as an alias A record to the ALB in step
-  3, with `allow_overwrite = false` (the provider then sends `CREATE`, which fails if a record
-  appears meanwhile), gated on name, type and alias target. Its owner is the `infra-rebuild`
+- **Traffic record, staged after the ALB.** The alias target is the ALB's DNS name and canonical
+  hosted-zone ID, both known only after the ALB is created, so a record in step 3 could not pass
+  the no-unknowns rule. Step 3 therefore creates the ALB without the record. `verify-cutover
+  --step created` (step 4) reads the live `DNSName` and `CanonicalHostedZoneId` with
+  `DescribeLoadBalancers` and writes `alb-created.json`, bound to the ALB ARN. `generate --stage
+  new-host` emits the record with those values as literals, `evaluate_target_health = false` (a
+  single simple record has nothing to fail over to) and `allow_overwrite = false` (the provider
+  then sends `CREATE`, which fails if a record appears meanwhile). Step 4a creates it alone,
+  before `start`, through `check --phase new-host` (§4.8 #4a). Its owner is the `infra-rebuild`
   root; `ready` checks TLS with SNI = `new_host` and the safe-path probe through that name.
 - **Clients.** The runbook is "start ECS, give clients the new URL", and the retirement evidence
   (§5.2) is the only measure of what still reaches App Runner.
-- **Rollback.** The rollback destroy deletes the `new_host` record with the ALB, so clients
-  already given the new URL lose it. `verify-cutover --step rolled-back` prints the ALB's
-  `RequestCount` since step 5 and requires an explicit operator answer before the destroy
-  proceeds.
+- **Rollback.** After 4a, the rollback destroy deletes the `new_host` record with the ALB, so
+  clients already given the new URL lose it. Before 4a the record does not exist and is not in
+  state, so the destroy has nothing to delete at that name. In both cases `verify-cutover --step
+  rolled-back` prints the ALB's `RequestCount` since step 5 (none if step 5 never ran) and
+  requires an explicit operator answer before the destroy proceeds.
 
 ### 4.10 Background work and side effects
 
@@ -708,12 +723,15 @@ deregistration.
 
 `check --phase rollback-rebuild` allows only: deletes of **exactly** the addresses in the
 `infra-rebuild` state except the log group and the created validation record, each of which must
-be a manifest address (the state may hold only the certificate from 2a, or everything), and
+be a manifest address (the state may hold only the certificate from 2a, everything from step 3
+without the `new_host` record, or everything), and
 `forget` of exactly those two where they are in state. Nothing else; a plan that deletes the
 validation record fails. It runs `verify-cutover --step rolled-back` first: background work is on in App Runner and
 off in ECS (or never transferred), and, with a custom domain, the live record is the simple CNAME
 to `DNSTarget`. With no custom domain, it prints the ALB's `RequestCount` since step 5 and
-requires an explicit operator answer (§4.9). A validation record shared with App Runner's
+requires an explicit operator answer (§4.9), whether or not 4a has run. The `new_host` record is
+in the `infra-rebuild` state only after 4a; the destroy deletes it then, and the exact-address
+rule above means a destroy planned before 4a cannot contain it. A validation record shared with App Runner's
 certificate is in the M5a root, so the destroy cannot touch it.
 
 ### 4.12 Runbook outline (0.4.0 default)
@@ -729,6 +747,11 @@ certificate is in the M5a root, so the destroy cannot touch it.
    if needed. The 72-hour validation window starts at 2a (§4.3).
 6. **Create** plan → `check --phase rebuild` → apply, within 72 h of 2a. Then `verify-cutover
    --step created`. If the certificate timed out: rollback destroy (§4.11), then step 5 again.
+   With no custom domain, `created` also writes `alb-created.json`, and then:
+
+   **6a. New host** (no custom domain only): `generate --stage new-host --evidence
+   alb-created.json`; plan → `check --phase new-host` → apply; `verify-cutover --step new-host`
+   (§4.8 #4a). The record exists from here on, so the rollback destroy deletes it.
 7. **Start** plan → `check --phase start` → apply. Then `verify-cutover --step ready`.
 8. **Cut over**: 7a and 7b in steps, or 7c.
 9. **Transfer background work**, if declared: copy `rebuild/staged/taskdef-on.tf` into
@@ -861,9 +884,10 @@ traffic from inside ecsodus.
 - `cli.py`: the `--forgotten` validation there (today "not an imported task definition in the
   manifest") is extended in step with `check/plan.py`, so it accepts exactly the addresses the
   manifest names for the current phase and step, and nothing else.
-- `generate --stage rebuild | worker-on | taskdef-off --evidence <file>`: staged generation
-  (§4.2). It checks the evidence file's bindings (account, region, ARN, manifest hash) before
-  emitting; `rebuild` also checks the certificate's status and age (§4.3).
+- `generate --stage rebuild | new-host | worker-on | taskdef-off --evidence <file>`: staged
+  generation (§4.2). It checks the evidence file's bindings (account, region, ARN, manifest hash)
+  before emitting; `rebuild` also checks the certificate's status and age (§4.3); `new-host`
+  checks the ALB ARN equals the one in the `infra-rebuild` state.
 - `verify-handoff`, `verify-cutover`, `retire-evidence`: read-only. Their IAM actions, listed in
   the runbook: `cloudformation:DescribeStacks`, `ListStacks`; `apprunner:DescribeService`,
   `ListOperations`, `DescribeCustomDomains`, `ListServices`; `ecs:DescribeServices`,
@@ -905,8 +929,13 @@ traffic from inside ecsodus.
   `subject_alternative_names` is anything but `[domain_name]`; a `rebuild` plan with a no-op of an
   address not already in the `infra-rebuild` state; a `rebuild` plan that contains
   `aws_ecs_task_definition.on`; a `rebuild` gate run against a certificate that is
-  `VALIDATION_TIMED_OUT` or older than 72 h; a `new_host` record with `allow_overwrite = true` or
-  another name, type or alias target; a `pre-create` with any record already at `new_host`; a 7a
+  `VALIDATION_TIMED_OUT` or older than 72 h; a step-3 `rebuild` plan that contains the `new_host`
+  record; a `new-host` plan whose `alias.name` or `alias.zone_id` is unknown, whose alias target,
+  name, type or zone differs from the manifest and `alb-created.json`, with `allow_overwrite =
+  true` or absent, with `evaluate_target_health` absent or other than the manifest value, or with
+  any extra create, update, delete or replace; a `new-host` check run when the live ALB's DNS name
+  or hosted-zone ID differs from `alb-created.json`; `generate --stage new-host` with an evidence
+  file bound to another ALB ARN; a `pre-create` with any record already at `new_host`; a 7a
   import plan with a null no-op but no matching `resource_drift` delete, or with either form on
   an address the manifest does not name; a `check --state` after 7a that still lists the simple
   record; a waypoint plan with a no-op on the record whose weight the pair changes; a
@@ -916,9 +945,11 @@ traffic from inside ecsodus.
   `subject_alternative_names == [domain_name]`; a 7a import plan in the refreshed form (null
   no-op plus drift) and in the `-refresh=false` form (`forget`); the two waypoint plans; a
   `taskdef-on` plan whose `container_definitions` differ from `off` only in key order and the
-  env var.
+  env var; a `new-host` plan creating only the record with the exact literals from
+  `alb-created.json`, alongside no-ops of the step-3 addresses.
 - **Rollback config:** `infra-rebuild-rollback/` plans cleanly (its `removed` blocks included)
-  when only the 2a certificate is in state, and when everything is.
+  when only the 2a certificate is in state, when everything from step 3 is but the `new_host`
+  record is not (no custom domain, before 4a), and when everything is.
 - **Stand-in checks:** `RegisterScalableTarget` with `MinCapacity = 0`, `MaxCapacity = 0` for an
   ECS service (moto, then the stand-in run in §9), and the provider's `UPSERT`/INSYNC behaviour
   at the pinned version.
@@ -1068,7 +1099,8 @@ build checks again and renumbers.
   Includes the deployed digest (block on a tag without a synchronized deployment), start command,
   health checks, scaling target, timeout, egress, tracing loss and background work.
 - **ADR-0021: Rebuild is a sequence of gated transitions with exact allowed changes.** Prepare,
-  certificate request, create at zero capacity, start, ready, convert, shift or switch, register
+  certificate request, create at zero capacity, (no custom domain) the `new_host` record once the
+  ALB exists, start, ready, convert, shift or switch, register
   the `on` revision, worker-off, worker-on, hand-over; values computed at apply time reach later
   gates only as literals through staged generation (including the off twin of a live revision
   for a rollback after hand-over); rollback is its own phase that destroys only the rebuild root
@@ -1185,7 +1217,7 @@ reviewer and level in bullet order (Opus P3-2 is Opus's second P3 note).
 |---|---|---|---|
 | Astra P2-1; Opus P2-1 | rollback deletes a validation record that the never-delete rule protects | §4.3, §4.11, §8, §18 #1 | `infra-rebuild-rollback/` forgets (`removed { destroy = false }`) the created validation record; `rollback-rebuild` allows that `forget` and fails a delete; must-fail test |
 | Astra P2-2 | post-hand-over rollback cannot register the off twin of a CI revision through the 8a gate | §4.2, §4.8 #8a′, §4.10, §4.11, §18 #2 | `verify-cutover --step live-revision` binds the live revision; `generate --stage taskdef-off`; `taskdef-off` gate creates only `off_live`; reverse 8c targets it |
-| Astra P2-3; Opus P2-2; Fable P2-2 | `new_host` has no traffic record and inherits the adoption zone rule | §3.2, §4.3, §4.8 #1, #3, §4.9, §18 #3–4 | zone rules split from the adoption rule; `pre-create` requires no record at `new_host`; step 3 creates an alias A to the ALB with `allow_overwrite = false`, gated on name, type, target; `ready` checks TLS through it |
+| Astra P2-3; Opus P2-2; Fable P2-2 | `new_host` has no traffic record and inherits the adoption zone rule | §3.2, §4.3, §4.8 #1, #3, §4.9, §18 #3–4 | zone rules split from the adoption rule; `pre-create` requires no record at `new_host`; an alias A to the ALB with `allow_overwrite = false`, gated on name, type, target; `ready` checks TLS through it. The record moved from step 3 to step 4a after the maintainer's review (below) |
 | Opus P2-2 (third part) | rollback in the no-domain branch strands clients given the new URL | §4.9, §4.11, §18 #5 | `rolled-back` prints ALB `RequestCount` since start and requires an operator answer |
 | Astra P2-4; Opus P3-5; Fable P3-1 | "in no state" is not an ownership boundary for 2b | §4.3, §4.8 #2b, §6, §18 #6 | report warns owner unknown and that a foreign delete breaks renewal for both; `validation_record: import` (with provenance) or `reference`; missing answer blocks |
 | Fable P2-1 | a refreshed 7a plan shows a null `no-op`, never a `forget` | §4.8 #7a, §4.9 step 5, §4.11, §7, §8, §18 #7 | import gate accepts `forget` or null no-op plus `resource_drift` delete for exactly the manifest addresses; `check --state` asserts absence after apply; `removed` block kept for `-refresh=false` |
@@ -1204,6 +1236,13 @@ reviewer and level in bullet order (Opus P3-2 is Opus's second P3 note).
 | Astra P3-2 | ADR-0014/0015 record worker and job moto evidence, not a moto architecture decision | §8, §18 #19 | reference tightened |
 | Fable P3-6; Fable P3-8; Astra P3-2 (second part) | checked, no change: `ignore_changes` path, `auto_deployments_enabled` default, ForceNew fields of the service, `TERRAFORM_CONSTRAINT`, `handoff_stacks`, ADR numbering, ARN form of `task_definition`, connector membership against the fixture | — | no change |
 
+**Maintainer review (PR #28).** One P2, addressed with the first of the two options offered
+(staged literals, the pattern of 2a and 8a).
+
+| Finding | Where | How |
+|---|---|---|
+| P2: step 3 creates the ALB and the `new_host` alias together, but `alias.name` and `alias.zone_id` are known only after apply, so the no-custom-domain rebuild cannot pass its own no-unknowns gate | §3.2, §4.2, §4.3, §4.8 intro, #3, #4, #4a, §4.9, §4.11, §4.12 step 6, §7, §8, §14 ADR-0021, §18 #3, #17, #20 | step 3 creates no `new_host` record and its gate rejects one; `verify-cutover --step created` writes `alb-created.json` (live `DNSName`, `CanonicalHostedZoneId`, bound to the ALB ARN); `generate --stage new-host` emits the record with those literals; new step 4a, `check --phase new-host`, before `start` and `ready`; rollback works with or without the record |
+
 ## 18. Build requirements from the approval round (binding for M5)
 
 All three reviewers approved r3. Their notes are fail-closed refinements, and the build
@@ -1221,10 +1260,18 @@ exists.
    `container_definitions` equal the live revision's except the env var's off value, with
    `skip_destroy = true`. The reverse 8c targets the ARN from `taskdef-off.json`. Must-fail
    tests: a binding to a non-live ARN; a second env var differs.
-3. **`new_host` traffic record (Astra P2-3, Opus P2-2, Fable P2-2).** Step 3 creates `new_host`
-   as an alias A record to the ALB with `allow_overwrite = false`; `check --phase rebuild` gates
-   name, type and alias target; the rollback destroy deletes it; `ready` checks TLS with SNI =
-   `new_host`. Must-fail test: `allow_overwrite = true` or another name, type or target.
+3. **`new_host` traffic record (Astra P2-3, Opus P2-2, Fable P2-2; staged after the ALB per the
+   maintainer review on PR #28).** Step 3 does not create the record, and `check --phase rebuild`
+   rejects it as a create outside the manifest. `verify-cutover --step created` writes
+   `alb-created.json` (ALB ARN, live `DNSName` and `CanonicalHostedZoneId`, account, region,
+   manifest hash). `generate --stage new-host` emits the alias A record with those values as
+   literals, `evaluate_target_health = false` and `allow_overwrite = false`. Step 4a, `check
+   --phase new-host`, allows exactly that one create (plus no-ops of the addresses already in
+   state) and gates zone, name, type, `alias.name`, `alias.zone_id`, `evaluate_target_health` and
+   `allow_overwrite`; any unknown on them fails. The rollback destroy deletes the record if 4a ran;
+   `ready` checks TLS with SNI = `new_host`. Must-fail tests: a step-3 plan containing the record;
+   a `new-host` plan with an unknown `alias.name` or `alias.zone_id`, another target, name, type or
+   zone, `allow_overwrite = true`, or any extra change. Must-pass test: the exact literals.
 4. **`new_host` zone rules (Astra P2-3, Opus P2-2, Fable P2-2).** `new_host` is checked against
    the §3.2 zone rules (exact name, public, delegated, same account) and CAA, not the adoption
    rule, and `pre-create` fails if any record of any type exists at the name. Must-fail test.
@@ -1267,9 +1314,16 @@ exists.
     `container_definitions` as parsed JSON. Must-pass test: key order differs, only the env var
     changes.
 17. **Rollback config shapes (Opus P3-6).** Offline test: `infra-rebuild-rollback/` plans cleanly
-    with only the 2a certificate in state and with everything in state.
+    with only the 2a certificate in state, with everything from step 3 but no `new_host` record
+    (maintainer review on PR #28), and with everything in state.
 18. **Connector replace (Fable P3-5).** `check --phase import` rejects any replace of
     `aws_apprunner_vpc_connector`; the plan no longer marks this UNCONFIRMED.
 19. **Wording (Fable P3-7, Astra P3-2, Opus P3-5, Fable P3-1).** "Never applied again unless
     rolling back" (§4.9); the ADR-0014/0015 reference names worker and job moto evidence (§8);
     "in neither ecsodus state" replaces "in no state" (§4.3, §4.8).
+20. **ALB binding for `new_host` (maintainer review on PR #28).** `verify-cutover --step created`
+    fails if the ALB ARN in the `infra-rebuild` state is not a live ALB in the manifest's account
+    and region. `generate --stage new-host` refuses an `alb-created.json` bound to another ARN or
+    manifest hash. `check --phase new-host` re-reads the ALB and fails if its live DNS name or
+    hosted-zone ID no longer equals the evidence. `verify-cutover --step new-host` requires exactly
+    one record at `new_host`, the alias A to that target. Must-fail tests for each.
