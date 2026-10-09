@@ -9,7 +9,7 @@ The work is text code generation plus AWS API reads. Nothing is CPU-bound. The m
 Python.
 
 ## Decision
-Python ≥ 3.11 with boto3, ruamel.yaml and Jinja2. The build backend is uv_build. The tool is
+Python ≥ 3.11 with boto3, ruamel.yaml and Jinja2. The build backend is uv_build (since 0.2.1: hatchling, ADR-0016). The tool is
 published to PyPI only after the real AWS run passes.
 
 ## Alternatives considered

@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The package builds with hatchling instead of uv_build (ADR-0016), so installing from source
+  (as Homebrew does) no longer needs a Rust toolchain. The wheel and sdist contents are
+  unchanged.
+
 ## [0.2.0] - 2026-10-07
 
 Two more Copilot workload types hand off: Worker Services and Scheduled Jobs, verified on real

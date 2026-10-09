@@ -17,5 +17,6 @@
 | [0013](0013-public-release.md) | Public repository and PyPI release (supersedes 0009) |
 | [0014](0014-worker-services.md) | Worker Services hand off; the backlog calculator is imported |
 | [0015](0015-scheduled-jobs.md) | Scheduled Jobs hand off; the state machine is imported as deployed |
+| [0016](0016-hatchling-build-backend.md) | Build with hatchling, not uv_build (amends 0005) |
 
 To add one, copy [0000-template.md](0000-template.md).
