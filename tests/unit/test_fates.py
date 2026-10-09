@@ -336,6 +336,33 @@ def test_record_set_group_record_is_not_imported_twice() -> None:
     assert "out-of-band:web.test.demo.example.com/A" in oob  # written by CustomDomainAction
 
 
+def test_undeployed_record_set_group_does_not_claim_a_live_record() -> None:
+    """A RecordSetGroup whose Condition is false (so it was never deployed) owns nothing: the
+    live record it would have described is still imported out of band (review on #27)."""
+    inv = app()
+    _env_zone(inv)
+    api = inv.stacks["demo-test-api"]
+    api.template_body += (
+        "  WebAlias:\n    Type: AWS::Route53::RecordSetGroup\n    Condition: Never\n"
+        "    Properties:\n      HostedZoneId:\n"
+        "        Fn::ImportValue: !Sub '${AppName}-${EnvName}-HostedZone'\n"
+        "      RecordSets:\n        - Name: web.test.demo.example.com\n          Type: A\n"
+        "          AliasTarget:\n            HostedZoneId: Z1H1FL5HABSF5\n"
+        "            DNSName: lb.example\n"
+    )
+    never = "  Never: !Equals [a, b]\n"
+    if "\nConditions:\n" in api.template_body:
+        api.template_body = api.template_body.replace(
+            "\nConditions:\n", "\nConditions:\n" + never, 1
+        )
+    else:
+        api.template_body += "Conditions:\n" + never
+    plan = build_plan(inv)
+    oob = _oob_rows(plan)
+    assert "out-of-band:web.test.demo.example.com/A" in oob
+    assert plan.stacks["demo-test"].handoff and plan.stacks["demo-test-api"].handoff
+
+
 def test_records_in_a_zone_ecsodus_does_not_import_are_external_references() -> None:
     """Root-zone aliases and their validation CNAMEs are written by retained handlers into a
     zone that is not Copilot's: reported, never silently dropped."""

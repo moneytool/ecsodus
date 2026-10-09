@@ -14,6 +14,7 @@ from ecsodus.mappers.fates import (
     RETAIN_UNDER_EXISTING_OWNER,
     MigrationPlan,
 )
+from ecsodus.mappers.tfmap import is_custom_resource
 
 KEEP_CFN = (
     "**Zero-risk baseline: keep the CloudFormation.** Copilot's stacks keep running without the "
@@ -124,7 +125,7 @@ def render(plan: MigrationPlan) -> str:
             "Retained by the patch, so no stack delete invokes a handler. Delete by hand after "
             "step 6.\n"
         )
-        handles = [r for r in cleanup if r.type.startswith("Custom::")]
+        handles = [r for r in cleanup if is_custom_resource(r.type)]
         for r in cleanup:
             if r not in handles:
                 w(f"- `{r.stack}/{r.logical_id}` ({r.type}) {r.physical_id or ''}")

@@ -177,9 +177,7 @@ def _classify_lambdas(template: dict[str, Any], rows: list[ResourcePlan]) -> Non
     bodies = template.get("Resources") or {}
     handlers: set[str] = set()
     for body in bodies.values():
-        if str(body.get("Type", "")).startswith("Custom::") or body.get("Type") == (
-            "AWS::CloudFormation::CustomResource"
-        ):
+        if tfmap.is_custom_resource(str(body.get("Type", ""))):
             handlers |= cfn.references((body.get("Properties") or {}).get("ServiceToken"))
     for rp in rows:
         if rp.fate != MANUAL_CLEANUP:
@@ -398,7 +396,7 @@ def _closure(plan: MigrationPlan) -> None:
     cleanup = [
         r
         for r in plan.resources
-        if r.fate == MANUAL_CLEANUP and r.physical_id and not r.type.startswith("Custom::")
+        if r.fate == MANUAL_CLEANUP and r.physical_id and not tfmap.is_custom_resource(r.type)
     ]
     cleanup_lids: dict[str, set[str]] = {}
     for r in cleanup:
@@ -499,9 +497,20 @@ def _out_of_band(inv: Inventory, plan: MigrationPlan) -> None:
         except cfn.TemplateError:
             continue
         res = Resolver(inv, st, tpl)
-        for body in (tpl.get("Resources") or {}).values():
+        for lid, body in (tpl.get("Resources") or {}).items():
             rtype = body.get("Type")
             if rtype not in ("AWS::Route53::RecordSet", "AWS::Route53::RecordSetGroup"):
+                continue
+            # Only a record set the stack actually deployed owns its records: a resource whose
+            # Condition is false, or that DescribeStackResources does not list, owns nothing
+            # and must not hide a live record from the out-of-band import.
+            deployed = st.resource(lid)
+            if deployed is None or not deployed.physical_id:
+                continue
+            try:
+                if not res.resource_exists(lid):
+                    continue
+            except Unresolvable:
                 continue
             props = body.get("Properties") or {}
             # A RecordSetGroup's records sit in the group's zone unless they name their own
@@ -626,7 +635,7 @@ def _side_effects(stack: Stack, template: dict[str, Any], resolver: Resolver) ->
             pass
         rtype = body.get("Type", "")
         policy = body.get("DeletionPolicy", "Delete")
-        if rtype.startswith("Custom::"):
+        if tfmap.is_custom_resource(rtype):
             info = knowledge.CUSTOM_RESOURCES.get(rtype) or {}
             variants = [v for v in info.get("variants", ()) if lid in v.get("logical_ids", ())]
             variants = variants or list(info.get("variants", ()))
