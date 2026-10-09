@@ -83,7 +83,7 @@ nav:
       - Code reviews: council/code-review-v0.1/README.md
 
 extra:
-  version: 0.2.0
+  version: 0.2.1
   doi: 10.5281/zenodo.23073590
   author_orcid: https://orcid.org/0009-0005-1167-2026
   social_image: assets/social-preview.png

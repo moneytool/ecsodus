@@ -1,6 +1,6 @@
 [project]
 name = "ecsodus"
-version = "0.2.0"
+version = "0.2.1"
 description = "Safely migrate AWS Copilot CLI apps to Terraform-managed ECS (adopt in place, retain-patched teardown)"
 readme = "README.md"
 license = "Apache-2.0"
