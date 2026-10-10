@@ -14,6 +14,7 @@ Amazon ECS**, without moving traffic and without losing data. It is free and ope
 
 ```bash
 pipx install ecsodus      # or: uvx ecsodus --help
+brew install moneytool/tap/ecsodus
 ```
 
 ![How ecsodus migrates an AWS Copilot app to Terraform in place](assets/how-it-works.gif)
