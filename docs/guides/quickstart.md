@@ -1,18 +1,19 @@
 # Quickstart
 
-> ecsodus v0.1.0rc1. Read [how it works](how-it-works.md) before running anything against
-> production.
+> Read [how it works](how-it-works.md) before running anything against production.
 
 ## 0. Prerequisites
 
-- Python ≥ 3.11 and `uv` (or `pipx`). Terraform ≥ 1.10.
+- Python ≥ 3.11 and `uv` (or `pipx`), or Homebrew (which brings its own Python). Terraform
+  ≥ 1.10.
 - AWS credentials for the account and region of the Copilot app, with read access. ecsodus only
   calls `Describe*`/`List*`/`Get*`. The runbook's mutating steps are yours to run, with your own
   credentials.
 - An S3 bucket for encrypted, locked Terraform state.
 
 ```bash
-uv tool install ecsodus        # after the public release; until then: uv run from a checkout
+uv tool install ecsodus        # or: pipx install ecsodus
+brew install moneytool/tap/ecsodus   # Homebrew (macOS / Linux)
 ```
 
 ## 1. Inventory (read-only)

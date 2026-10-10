@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Homebrew: `brew install moneytool/tap/ecsodus` (tap `moneytool/homebrew-tap`, issue #9).
+
 ## [0.2.1] - 2026-10-08
 
 A safety fix: upgrade if you use, or plan to use, ecsodus on an app with a custom domain.

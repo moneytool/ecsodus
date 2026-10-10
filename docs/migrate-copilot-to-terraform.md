@@ -14,7 +14,7 @@ Services, Scheduled Jobs, their environment and addons) to Terraform **in place*
 ## 1. Install and inventory (read-only)
 
 ```bash
-pipx install ecsodus
+pipx install ecsodus      # or: brew install moneytool/tap/ecsodus
 ecsodus inventory --app my-app --region us-east-1 -o inventory.json
 ecsodus report inventory.json -o REPORT.md
 ```

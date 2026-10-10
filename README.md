@@ -45,6 +45,7 @@ machine check before every mutating step.
 
 ```bash
 pipx install ecsodus      # or run it without installing: uvx ecsodus --help
+brew install moneytool/tap/ecsodus   # Homebrew (macOS / Linux)
 ```
 
 **Using Kiro?** Install the [ecsodus Kiro power](https://github.com/moneytool/ecsodus-kiro-power) (Powers panel → Add Custom Power → Import power from GitHub) and ask Kiro to assess your Copilot app. It runs the read-only steps for you and walks you through the runbook one checked step at a time.
