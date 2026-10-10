@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-08
+
+A safety fix: upgrade if you use, or plan to use, ecsodus on an app with a custom domain.
+The 0.2.0 RUNBOOK's post-teardown cleanup list named Copilot's `HTTPSCert` handle with its
+physical ID, which is the ARN of the certificate the HTTPS listener uses (now owned by
+Terraform). Do not delete anything by a custom-resource handle's physical ID.
+
+### Added
+- The App Runner plan (milestone M5: adopt Copilot Request-Driven Web Services in place, then
+  rebuild on ECS), approved by the council in three rounds; every review is kept in
+  `docs/council/v0.2/`.
+
 ### Changed
 - The package builds with hatchling instead of uv_build (ADR-0016), so installing from source
   (as Homebrew does) no longer needs a Rust toolchain. The wheel and sdist contents are
@@ -157,7 +169,8 @@ First public release. It was verified end to end on real AWS against a Copilot v
 - Two independent code reviews and a verification review; every P0 and P1 finding is fixed
   (`docs/council/code-review-v0.1/`).
 
-[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/moneytool/ecsodus/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/moneytool/ecsodus/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.1

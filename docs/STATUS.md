@@ -1,4 +1,13 @@
-# Status: v0.2.0 (2026-10-07)
+# Status: v0.2.1 (2026-10-08)
+
+## v0.2.1: safety fix and hatchling
+
+- The RUNBOOK no longer lists custom-resource handles for deletion (the 0.2.0 list named
+  `HTTPSCert`'s physical ID, the live certificate ARN). Custom-domain gaps found offline are
+  fixed ([gap analysis](e2e/custom-domain-gap-analysis.md)); the real custom-domain run
+  (issue #6) still needs a domain.
+- Builds with hatchling (ADR-0016), so Homebrew can install it without Rust.
+- Next: the App Runner milestone M5 ([plan](PLAN-v0.2.md), approved).
 
 ## v0.2.0: Worker Services (ADR-0014)
 
