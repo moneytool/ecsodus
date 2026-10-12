@@ -203,6 +203,32 @@ def test_live_values_reach_the_terraform(built: tuple[Inventory, MigrationPlan])
     ]
 
 
+def test_private_placement_imports(built: tuple[Inventory, MigrationPlan]) -> None:
+    """A privately placed service (no public IPs, egress through the env's NAT gateways) hands
+    off with its NAT path, and the NAT Elastic IPs (allowlisted egress addresses) are protected
+    from destruction."""
+    _, plan = built
+    by = {(r.stack, r.logical_id): r for r in plan.resources}
+    svc = by[(app.SVC_STACK, "Service")]
+    assert svc.spec is not None
+    net = dict(dict(svc.spec.body)["network_configuration"].body)
+    assert net["subnets"] == app.PRIVATE_SUBNETS
+    assert net["assign_public_ip"] is False
+    tpl = cfn.load(plan.inventory.stacks[app.SVC_STACK].template_body)
+    params = tpl["Resources"]["EnvControllerAction"]["Properties"]["Parameters"]
+    assert "NATWorkloads" in params  # the env keeps NAT for this workload
+    for lid in (
+        "NatGateway1Attachment", "NatGateway1", "PrivateRouteTable1", "PrivateRoute1",
+        "PrivateRouteTable1Association", "NatGateway2Attachment", "NatGateway2",
+        "PrivateRouteTable2", "PrivateRoute2", "PrivateRouteTable2Association",
+        "PrivateSubnet1", "PrivateSubnet2",
+    ):  # fmt: skip
+        assert by[(app.ENV_STACK, lid)].fate == IMPORT, lid
+    for lid in ("NatGateway1Attachment", "NatGateway2Attachment"):
+        spec = by[(app.ENV_STACK, lid)].spec
+        assert spec is not None and spec.stateful, lid
+
+
 def test_worker_service_imports(built: tuple[Inventory, MigrationPlan]) -> None:
     """ADR-0014: everything a Worker Service runs on is imported, including the backlog
     calculator its queue-depth scaling depends on."""

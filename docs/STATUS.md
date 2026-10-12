@@ -9,6 +9,13 @@
 - Builds with hatchling (ADR-0016), so Homebrew can install it without Rust.
 - Next: the App Runner milestone M5 ([plan](PLAN-v0.2.md), approved).
 
+## Unreleased: private placement covered offline
+
+- The synthetic full hand-off app's LBWS is privately placed (private subnets, no public IPs,
+  egress through the env's NAT gateways). It hands off with the whole NAT path imported, and NAT
+  Elastic IPs now get `prevent_destroy`. Not yet run on real AWS (about $0.10–0.20 for an hour
+  of NAT gateway).
+
 ## v0.2.0: Worker Services (ADR-0014)
 
 - Worker Services hand off, including the backlog-per-task Lambda their queue-depth scaling
