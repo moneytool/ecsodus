@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-12
+
+NAT gateway Elastic IPs are now protected, and ecsodus can be installed with Homebrew.
+
 ### Added
 - Homebrew: `brew install moneytool/tap/ecsodus` (tap `moneytool/homebrew-tap`, issue #9).
 - Offline coverage for private placement: the synthetic full hand-off app's Load Balanced Web
@@ -179,7 +183,8 @@ First public release. It was verified end to end on real AWS against a Copilot v
 - Two independent code reviews and a verification review; every P0 and P1 finding is fixed
   (`docs/council/code-review-v0.1/`).
 
-[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/moneytool/ecsodus/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/moneytool/ecsodus/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/moneytool/ecsodus/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/moneytool/ecsodus/releases/tag/v0.1.2

@@ -1,4 +1,4 @@
-# Status: v0.2.1 (2026-10-08)
+# Status: v0.2.2 (2026-10-12)
 
 ## v0.2.1: safety fix and hatchling
 
@@ -9,7 +9,7 @@
 - Builds with hatchling (ADR-0016), so Homebrew can install it without Rust.
 - Next: the App Runner milestone M5 ([plan](PLAN-v0.2.md), approved).
 
-## Unreleased: private placement covered offline
+## v0.2.2: private placement covered offline
 
 - The synthetic full hand-off app's LBWS is privately placed (private subnets, no public IPs,
   egress through the env's NAT gateways). It hands off with the whole NAT path imported, and NAT
