@@ -31,7 +31,10 @@ App layout (app ``my-app``, env ``test``):
   hosted zone (out-of-band objects), plus a validation CNAME for the alias ``example.com`` in
   the customer's root zone, which is not a Copilot zone (an external reference).
 * ``my-app-test-fe``: Load Balanced Web Service (the svc-staging render: HTTPS on the env ALB,
-  an alias record, two target groups, SNS topics; Service Connect is ``Enabled: False``).
+  an alias record, two target groups, SNS topics; Service Connect is ``Enabled: False``), with
+  ``network.vpc.placement: private``. No verbatim Copilot render uses private placement, so the
+  render is changed exactly as Copilot's templates would change it (``_with_private_placement``):
+  tasks in the env's private subnets without public IPs, behind its NAT gateways.
 * ``my-app-test-fe-AddonsStack-1ABCDEFGHIJKL``: its nested addons stack, either the S3 bucket +
   DynamoDB table render (``addons="s3-ddb"``) or the Aurora Serverless v2 render
   (``addons="aurora"``).
@@ -84,6 +87,7 @@ SUBNETS = {  # logical id -> (subnet id, AZ, CIDR, public)
     "PrivateSubnet2": ("subnet-0a1b2c3d4e5f60022", "us-west-2b", "10.0.3.0/24", False),
 }
 PUBLIC_SUBNETS = [SUBNETS["PublicSubnet1"][0], SUBNETS["PublicSubnet2"][0]]
+PRIVATE_SUBNETS = [SUBNETS["PrivateSubnet1"][0], SUBNETS["PrivateSubnet2"][0]]
 SG_PUBLIC_HTTP = "sg-0a1b2c3d4e5f60101"
 SG_PUBLIC_HTTPS = "sg-0a1b2c3d4e5f60102"
 SG_ENV = "sg-0a1b2c3d4e5f60103"
@@ -511,6 +515,30 @@ def _rule(inv: Inventory, stack: Stack, lid: str, arn: str, priority: str) -> di
     }
 
 
+def _with_private_placement(text: str) -> str:
+    """A Load Balanced Web Service rendered with ``network.vpc.placement: private``.
+
+    Copilot changes exactly three things for private placement (aws/copilot-cli @ a0dbe689):
+    ``workloads/partials/cf/service-base-properties.yml`` renders ``AssignPublicIp`` from
+    ``.Network.AssignPublicIP`` (``DISABLED``) and the subnets from the
+    ``${AppName}-${EnvName}-{{.Network.SubnetsType}}`` export (``PrivateSubnets``), and
+    ``envControllerParameters`` in ``internal/pkg/template/workload.go`` appends ``NATWorkloads``,
+    so the env-controller asks the environment for its NAT gateways.
+    """
+    for old, new in (
+        ("          AssignPublicIp: ENABLED\n", "          AssignPublicIp: DISABLED\n"),
+        ("-${EnvName}-PublicSubnets'", "-${EnvName}-PrivateSubnets'"),
+        (
+            "Parameters: [ALBWorkloads, Aliases]",
+            "Parameters: [ALBWorkloads, Aliases, NATWorkloads]",
+        ),
+    ):
+        if text.count(old) != 1:
+            raise ValueError(f"expected exactly one {old!r} in the render")
+        text = text.replace(old, new)
+    return text
+
+
 def env_live(inv: Inventory, env: Stack) -> dict[str, dict[str, Any]]:
     def tags(lid: str) -> list[dict[str, str]]:
         return api_tags(tag_map(inv, env, lid))
@@ -844,9 +872,9 @@ def svc_live(inv: Inventory, svc: Stack) -> dict[str, dict[str, Any]]:
             "serviceRegistries": [{"registryArn": SRV_ARN, "port": 4000}],
             "networkConfiguration": {
                 "awsvpcConfiguration": {
-                    "subnets": PUBLIC_SUBNETS,
+                    "subnets": PRIVATE_SUBNETS,
                     "securityGroups": [SG_ENV],
-                    "assignPublicIp": "ENABLED",
+                    "assignPublicIp": "DISABLED",
                 }
             },
             "healthCheckGracePeriodSeconds": 30,
@@ -1518,6 +1546,7 @@ def build_app(addons: str = "s3-ddb") -> Inventory:
         params=SVC_PARAMS,
         app=APP,
     )
+    svc.template_body = _with_private_placement(svc.template_body)
     svc.stack_id = SVC_STACK_ID
     svc.tags = _copilot_tags(ENV, SVC)
     svc.capabilities = ["CAPABILITY_IAM"]

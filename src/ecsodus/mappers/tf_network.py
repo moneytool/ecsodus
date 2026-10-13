@@ -156,6 +156,10 @@ def eip(ctx: Ctx) -> TfSpec:
     """aws_eip; import ID is the allocation ID (the CFN physical ID is the public IP).
 
     Live keys: ``live["AllocationId"]`` (DescribeAddresses).
+
+    Protected with ``prevent_destroy`` like data: a NAT gateway's Elastic IP is the app's fixed
+    outbound address, which partners and databases allowlist, and a released address cannot be
+    got back.
     """
     _only(ctx, ("Domain", "PublicIpv4Pool", "NetworkBorderGroup", "Tags"))
     allocation_id = _live(ctx, "AllocationId")
@@ -170,7 +174,7 @@ def eip(ctx: Ctx) -> TfSpec:
         ),
     )
     _tags(ctx, body)
-    return TfSpec("aws_eip", allocation_id, body)
+    return TfSpec("aws_eip", allocation_id, body, stateful=True)
 
 
 @mapper("AWS::EC2::NatGateway")

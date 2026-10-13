@@ -120,7 +120,8 @@ def test_every_network_resource_maps_when_live_data_is_present(path: Path) -> No
     assert network
     for lid, result in network.items():
         assert isinstance(result, TfSpec), (lid, result)
-        assert result.stateful is False
+        # Only Elastic IPs are protected (an allowlisted address cannot be got back).
+        assert result.stateful is (result.tf_type == "aws_eip"), lid
         assert result.fidelity == "full", (lid, result.notes)
         hcl.block("resource", (result.tf_type, lid), result.body)  # renders
 
@@ -208,6 +209,8 @@ def test_routes_associations_nat_and_eip() -> None:
     eip = got["NatGateway1Attachment"]
     assert eip.tf_type == "aws_eip" and eip.import_id == alloc
     assert args(eip) == {"domain": "vpc"}
+    assert eip.stateful  # allowlisted egress address: prevent_destroy, like data
+    assert not got["NatGateway1"].stateful  # a NAT gateway is replaceable; its EIP is not
 
     nat = got["NatGateway1"]
     assert nat.tf_type == "aws_nat_gateway" and nat.import_id == pid(stack, "NatGateway1")

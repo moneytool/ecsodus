@@ -45,6 +45,13 @@ their Delete handlers; the runbook lists them for deletion afterwards.
 - **Custom domains.** The certificate and its validation records were created by a custom
   resource, outside CloudFormation. ecsodus imports them with the environment; their survival
   through teardown on a real account is still being verified (issue #6).
+- **Private placement** (`network.vpc.placement: private`). The tasks run in the environment's
+  private subnets without public IPs, and reach the internet through its NAT gateways, which the
+  environment creates because the service's env-controller asks for `NATWorkloads`. The NAT
+  gateways, their Elastic IPs and the private route tables are imported with the environment, and
+  the retain patch stops the env-controller from deleting them when the service stack goes. The
+  Elastic IPs get `prevent_destroy`: they are the app's fixed egress addresses, which partners
+  and databases allowlist. Covered offline; not yet run on real AWS.
 - **Network Load Balancer.** An LBWS with an `nlb` section is kept on Copilot: the network
   load balancer is blocked until a migration of one has been exercised, which keeps its stack
   (and the environment it needs).

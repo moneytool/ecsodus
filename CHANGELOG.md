@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - Homebrew: `brew install moneytool/tap/ecsodus` (tap `moneytool/homebrew-tap`, issue #9).
+- Offline coverage for private placement: the synthetic full hand-off app's Load Balanced Web
+  Service now runs in the environment's private subnets without public IPs, behind its NAT
+  gateways, rendered exactly as Copilot's templates render `network.vpc.placement: private`.
+
+### Changed
+- Elastic IPs (a NAT gateway's fixed egress address) are imported with `prevent_destroy`, like
+  data: partners and databases allowlist them, and a released address cannot be got back.
 
 ## [0.2.1] - 2026-10-08
 
