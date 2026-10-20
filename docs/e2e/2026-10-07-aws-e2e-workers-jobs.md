@@ -76,4 +76,5 @@ nothing and cannot be removed right away: the run's two customer KMS keys are in
 ## Not covered by this run
 - A custom domain and ACM certificate (issue #6).
 - A Worker Service with a dead-letter queue, multiple topics, or FIFO topics (covered offline).
-- Private placement with NAT gateways.
+- Private placement with NAT gateways (covered by the
+  [2026-10-20 run](2026-10-20-aws-e2e-private-placement.md)).

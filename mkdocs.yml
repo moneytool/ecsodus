@@ -71,6 +71,7 @@ nav:
   - Evidence:
       - AWS end-to-end run (2026-09-30): e2e/2026-09-30-aws-e2e.md
       - AWS run, Workers and Jobs (2026-10-07): e2e/2026-10-07-aws-e2e-workers-jobs.md
+      - AWS run, private placement (2026-10-20): e2e/2026-10-20-aws-e2e-private-placement.md
       - Example report: examples/copilot-lbws-aurora/REPORT.md
       - Example runbook: examples/copilot-lbws-aurora/RUNBOOK.md
       - Status: STATUS.md
