@@ -51,7 +51,8 @@ their Delete handlers; the runbook lists them for deletion afterwards.
   gateways, their Elastic IPs and the private route tables are imported with the environment, and
   the retain patch stops the env-controller from deleting them when the service stack goes. The
   Elastic IPs get `prevent_destroy`: they are the app's fixed egress addresses, which partners
-  and databases allowlist. Covered offline; not yet run on real AWS.
+  and databases allowlist. Verified on real AWS with a privately placed service
+  ([2026-10-20 run](../e2e/2026-10-20-aws-e2e-private-placement.md)).
 - **Network Load Balancer.** An LBWS with an `nlb` section is kept on Copilot: the network
   load balancer is blocked until a migration of one has been exercised, which keeps its stack
   (and the environment it needs).

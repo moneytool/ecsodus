@@ -13,8 +13,9 @@
 
 - The synthetic full hand-off app's LBWS is privately placed (private subnets, no public IPs,
   egress through the env's NAT gateways). It hands off with the whole NAT path imported, and NAT
-  Elastic IPs now get `prevent_destroy`. Not yet run on real AWS (about $0.10–0.20 for an hour
-  of NAT gateway).
+  Elastic IPs now get `prevent_destroy`. Verified on real AWS on 2026-10-20
+  ([report](e2e/2026-10-20-aws-e2e-private-placement.md)): 41/41 pure imports, the NAT gateways
+  and their Elastic IPs survived the teardown, and the service kept its egress.
 
 ## v0.2.0: Worker Services (ADR-0014)
 
