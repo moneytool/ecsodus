@@ -58,3 +58,9 @@ No. This is the **AWS Copilot CLI**, Amazon's tool for deploying containers to E
 ## What about AWS App Runner and Proton?
 App Runner closed to new customers on 2026-04-30. Support for it is planned for v0.2. Proton
 reaches end of support on 2026-10-07.
+
+## Copilot's Aurora addon fails with "Cannot find version 16.2". Does ecsodus need it?
+No. Copilot v1.34.1's Aurora template pins PostgreSQL `16.2`, which AWS has retired, so
+`copilot storage init` output no longer deploys as rendered; edit `EngineVersion` in the addon
+template to a version AWS offers. Existing clusters are unaffected, and ecsodus reads the version
+the cluster actually runs ([2026-10-20 Aurora run](e2e/2026-10-20-aws-e2e-aurora.md)).

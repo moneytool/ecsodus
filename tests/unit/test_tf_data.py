@@ -214,6 +214,30 @@ def test_subnet_group_and_cluster_parameter_group():
     assert _blocks(pg, "parameter") == [{"name": "client_encoding", "value": "UTF8"}]
 
 
+def test_parameter_group_carries_exactly_the_live_user_parameters():
+    """AWS records a parameter set to its system value as ``system``, not ``user``, and the
+    provider reads back only user parameters (2026-10-20 AWS run: Copilot's
+    ``client_encoding: UTF8`` planned an update)."""
+    inv, stack = _aurora()
+    pid = _pid(stack, "dbDBClusterParameterGroup")
+    inv.live[pid] = {
+        "Parameters": {
+            "client_encoding": {"Value": "UTF8", "Source": "system"},
+            "log_min_duration_statement": {"Value": "500", "Source": "user"},
+        }
+    }
+    pg = _spec(inv, stack, "dbDBClusterParameterGroup")
+    assert _blocks(pg, "parameter") == [{"name": "log_min_duration_statement", "value": "500"}]
+    assert any("client_encoding = UTF8 is not written" in n for n in pg.notes)
+    # A template parameter AWS holds at a different value is never guessed.
+    inv.live[pid]["Parameters"]["client_encoding"] = {"Value": "SQL_ASCII", "Source": "user"}
+    result = _map(inv, stack, "dbDBClusterParameterGroup")
+    assert isinstance(result, NotImported) and "client_encoding" in result.reason
+    inv.live[pid]["Parameters"].pop("client_encoding")
+    result = _map(inv, stack, "dbDBClusterParameterGroup")
+    assert isinstance(result, NotImported) and "client_encoding" in result.reason
+
+
 def test_standalone_db_instance_and_parameter_group():
     inv, stack = inventory_from_template(SYN / "data-iam-misc.yml")
     pid = "demo-test-api-db"
@@ -255,6 +279,9 @@ def test_aurora_secret_is_secret_resource_only():
     text = _hcl(spec)
     assert "secret_string" not in text and "SecretStringTemplate" not in text
     assert any("GenerateSecretString" in n for n in spec.notes)
+    # Terraform-only arguments are written at their defaults, so the import ignores them
+    # (2026-10-20 AWS run: left out, their defaults planned an update).
+    assert a["recovery_window_in_days"] == 30 and a["force_overwrite_replica_secret"] is False
 
 
 def test_secret_string_literal_is_never_emitted():
