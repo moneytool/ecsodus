@@ -1,4 +1,4 @@
-# Status: v0.2.2 (2026-10-12)
+# Status: v0.2.3 (2026-10-20)
 
 ## v0.2.1: safety fix and hatchling
 
@@ -9,7 +9,7 @@
 - Builds with hatchling (ADR-0016), so Homebrew can install it without Rust.
 - Next: the App Runner milestone M5 ([plan](PLAN-v0.2.md), approved).
 
-## Unreleased: Aurora verified on real AWS (2026-10-20)
+## v0.2.3: Aurora verified on real AWS (2026-10-20)
 
 - A Copilot service with an Aurora Serverless v2 addon hands off: 38/38 pure imports after two
   fixes (live RDS parameter-group read; secret defaults written), the database cluster kept its

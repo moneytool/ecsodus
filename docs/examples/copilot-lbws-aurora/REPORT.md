@@ -1,6 +1,6 @@
 # Migration readiness: Copilot app `my-app`
 
-ecsodus 0.2.2 · account `123456789012` · region `us-west-2` · inventory captured 2026-10-13T02:28:50+00:00
+ecsodus 0.2.3 · account `123456789012` · region `us-west-2` · inventory captured 2026-10-21T03:07:04+00:00
 
 ## Summary
 
