@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-20
+
+Aurora Serverless v2 addons hand off cleanly on real AWS: RDS parameter groups and database
+secrets now import without planned changes.
+
 ### Fixed
 - Found by the 2026-10-20 AWS run with an Aurora Serverless v2 addon
   ([report](docs/e2e/2026-10-20-aws-e2e-aurora.md)):
@@ -199,7 +204,8 @@ First public release. It was verified end to end on real AWS against a Copilot v
 - Two independent code reviews and a verification review; every P0 and P1 finding is fixed
   (`docs/council/code-review-v0.1/`).
 
-[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/moneytool/ecsodus/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/moneytool/ecsodus/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/moneytool/ecsodus/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/moneytool/ecsodus/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/moneytool/ecsodus/compare/v0.1.2...v0.2.0
