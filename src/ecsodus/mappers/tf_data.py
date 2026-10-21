@@ -445,19 +445,55 @@ def db_subnet_group(ctx: Ctx) -> TfSpec:
 
 
 def _parameter_group(ctx: Ctx, tf_type: str, name_key: str) -> TfSpec:
+    """aws_rds_cluster_parameter_group / aws_db_parameter_group, imported by name.
+
+    Optional live keys (DescribeDBClusterParameters / DescribeDBParameters, recorded by
+    ``sources/live.py``): ``Parameters``, a map of parameter name to ``{"Value", "Source"}``.
+    The provider reads back only parameters whose source is ``user``. A template parameter AWS
+    holds at its system or engine-default value (Copilot's Aurora addon sets
+    ``client_encoding: UTF8``, which AWS records as ``system``) would plan an update, so the
+    configuration carries exactly the live user parameters (found on the 2026-10-20 AWS run).
+    """
     _only(ctx, {name_key, "Description", "Family", "Parameters", "Tags"})
-    body: list = [
+    spec = TfSpec(tf_type, ctx.pid, [])
+    body = spec.body
+    body += [
         ("name", ctx.pid),
         ("family", ctx.r("Family")),
         ("description", ctx.r("Description")),
     ]
-    params = ctx.r("Parameters", {}) or {}
-    for k in sorted(params):
-        v = params[k]
-        value = ("1" if v else "0") if isinstance(v, bool) else str(v)
-        body.append(("parameter", Block([("name", k), ("value", value)])))
+    params = {
+        k: (("1" if v else "0") if isinstance(v, bool) else str(v))
+        for k, v in (ctx.r("Parameters", {}) or {}).items()
+    }
+    live = ctx.live.get("Parameters")
+    if live is None:
+        chosen = params  # no live read: the template's parameters (an older inventory)
+    else:
+        chosen = {k: str(p.get("Value", "")) for k, p in live.items() if p.get("Source") == "user"}
+        for k, v in sorted(params.items()):
+            if k in chosen:
+                if chosen[k] != v:
+                    raise Unresolvable(f"parameter {k}: template {v!r} != live {chosen[k]!r}")
+                continue
+            p = live.get(k)
+            if p is None or str(p.get("Value", "")) != v:
+                found = None if p is None else p.get("Value")
+                raise Unresolvable(f"parameter {k}: template {v!r} != live {found!r}")
+            spec.notes.append(
+                f"parameter {k} = {v} is not written: AWS holds it at that value as a "
+                f"{p.get('Source')} default, and the provider reads back only user parameters"
+            )
+    for k in sorted(chosen):
+        param: list[tuple[str, Any]] = [("name", k), ("value", chosen[k])]
+        # The provider reads apply_method back and hashes it into the set, so a pending-reboot
+        # parameter written with the default (immediate) plans an update.
+        method = (live or {}).get(k, {}).get("ApplyMethod")
+        if method:
+            param.append(("apply_method", method))
+        body.append(("parameter", Block(param)))
     _add_tags(ctx, body)
-    return TfSpec(tf_type, ctx.pid, body)
+    return spec
 
 
 @mapper("AWS::RDS::DBClusterParameterGroup")
@@ -832,6 +868,10 @@ def secretsmanager_secret(ctx: Ctx) -> TfSpec:
             blk.append(("kms_key_id", rep["KmsKeyId"]))
         body.append(("replica", Block(blk)))
     _add_tags(ctx, body)
+    # Terraform-only arguments with provider defaults: written so the import ignores them
+    # (IMPORT_UNREAD) and RUNBOOK step 4b hardens them; left out, their defaults planned an
+    # update (2026-10-20 AWS run).
+    body += [("recovery_window_in_days", 30), ("force_overwrite_replica_secret", False)]
     for which in ("GenerateSecretString", "SecretString"):
         if ctx.has(which):
             spec.notes.append(

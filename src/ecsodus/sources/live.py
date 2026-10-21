@@ -222,6 +222,38 @@ def _db_clusters(clients: Clients, inv: Inventory, ids: list[str]) -> None:
             inv.live[cid] = c
 
 
+@reader("AWS::RDS::DBClusterParameterGroup")
+def _cluster_parameter_groups(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    rds = clients("rds")
+    for name in ids:
+        params = paginate(
+            rds, "describe_db_cluster_parameters", "Parameters", DBClusterParameterGroupName=name
+        )
+        inv.live[name] = {"Parameters": _parameters(params)}
+
+
+@reader("AWS::RDS::DBParameterGroup")
+def _db_parameter_groups(clients: Clients, inv: Inventory, ids: list[str]) -> None:
+    rds = clients("rds")
+    for name in ids:
+        params = paginate(rds, "describe_db_parameters", "Parameters", DBParameterGroupName=name)
+        inv.live[name] = {"Parameters": _parameters(params)}
+
+
+def _parameters(params: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    """Parameter name -> {"Value", "Source", "ApplyMethod"}; parameters with no value are left
+    out. The provider reads ``apply_method`` back and hashes it into the parameter set."""
+    return {
+        p["ParameterName"]: {
+            "Value": str(p["ParameterValue"]),
+            "Source": p.get("Source", ""),
+            "ApplyMethod": str(p.get("ApplyMethod", "")).lower(),
+        }
+        for p in params
+        if "ParameterValue" in p
+    }
+
+
 @reader("AWS::RDS::DBInstance")
 def _db_instances(clients: Clients, inv: Inventory, ids: list[str]) -> None:
     rds = clients("rds")

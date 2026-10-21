@@ -131,6 +131,7 @@ and the [FAQ](https://moneytool.github.io/ecsodus/faq/).
 - [AWS end-to-end report](docs/e2e/2026-09-30-aws-e2e.md): the real run (passed)
 - [AWS run, Workers and Jobs](docs/e2e/2026-10-07-aws-e2e-workers-jobs.md): 63/63 imports, passed
 - [AWS run, private placement](docs/e2e/2026-10-20-aws-e2e-private-placement.md): 41/41 imports, NAT survived, passed
+- [AWS run, Aurora addon](docs/e2e/2026-10-20-aws-e2e-aurora.md): 38/38 imports, database and data intact, passed
 - [Worked example](docs/examples/): REPORT.md and RUNBOOK.md for a real Copilot app
 - [Quickstart](docs/guides/quickstart.md)
 - [Workload types](docs/workloads/index.md): what ecsodus does with each Copilot workload type
