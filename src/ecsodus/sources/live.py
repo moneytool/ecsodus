@@ -241,9 +241,14 @@ def _db_parameter_groups(clients: Clients, inv: Inventory, ids: list[str]) -> No
 
 
 def _parameters(params: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
-    """Parameter name -> {"Value", "Source"}; parameters with no value are left out."""
+    """Parameter name -> {"Value", "Source", "ApplyMethod"}; parameters with no value are left
+    out. The provider reads ``apply_method`` back and hashes it into the parameter set."""
     return {
-        p["ParameterName"]: {"Value": str(p["ParameterValue"]), "Source": p.get("Source", "")}
+        p["ParameterName"]: {
+            "Value": str(p["ParameterValue"]),
+            "Source": p.get("Source", ""),
+            "ApplyMethod": str(p.get("ApplyMethod", "")).lower(),
+        }
         for p in params
         if "ParameterValue" in p
     }

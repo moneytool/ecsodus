@@ -12,7 +12,8 @@ All notable changes to this project are documented here. The format follows
   - RDS parameter groups are read live, and the configuration carries exactly the parameters
     AWS records as user-set. Copilot's `client_encoding: UTF8` is stored by AWS as a system
     value, so writing it planned an update; a template parameter AWS holds at another value
-    blocks the resource.
+    blocks the resource. Each parameter keeps its live `apply_method`, which the provider
+    hashes into the parameter set.
   - Secrets Manager secrets carry `recovery_window_in_days` and
     `force_overwrite_replica_secret` at their defaults, so the import ignores them and RUNBOOK
     step 4b hardens them; left out, the provider's defaults planned an update.

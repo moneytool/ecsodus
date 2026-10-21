@@ -321,9 +321,30 @@ def test_cluster_parameter_group_read(aws) -> None:
     rds.modify_db_cluster_parameter_group(
         DBClusterParameterGroupName="pg",
         Parameters=[{"ParameterName": "log_min_duration_statement", "ParameterValue": "500",
-                     "ApplyMethod": "immediate"}],
+                     "ApplyMethod": "pending-reboot"}],
     )  # fmt: skip
     inv = Inventory(app="shop", account="123456789012", region=REGION, captured_at="now")
     live.READERS["AWS::RDS::DBClusterParameterGroup"](Clients(aws), inv, ["pg"])
     params = inv.live["pg"]["Parameters"]
     assert params["log_min_duration_statement"]["Value"] == "500"
+    assert params["log_min_duration_statement"]["ApplyMethod"] == "pending-reboot"
+
+
+def test_db_parameter_group_read_keeps_apply_method(aws) -> None:
+    """Instance parameter groups carry each parameter's apply method too."""
+    from ecsodus.model import Inventory
+    from ecsodus.sources import live
+
+    rds = aws.client("rds")
+    rds.create_db_parameter_group(
+        DBParameterGroupName="ipg", DBParameterGroupFamily="postgres16", Description="ipg"
+    )
+    rds.modify_db_parameter_group(
+        DBParameterGroupName="ipg",
+        Parameters=[{"ParameterName": "shared_preload_libraries",
+                     "ParameterValue": "pg_stat_statements", "ApplyMethod": "pending-reboot"}],
+    )  # fmt: skip
+    inv = Inventory(app="shop", account="123456789012", region=REGION, captured_at="now")
+    live.READERS["AWS::RDS::DBParameterGroup"](Clients(aws), inv, ["ipg"])
+    param = inv.live["ipg"]["Parameters"]["shared_preload_libraries"]
+    assert (param["Value"], param["ApplyMethod"]) == ("pg_stat_statements", "pending-reboot")

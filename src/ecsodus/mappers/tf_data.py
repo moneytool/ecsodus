@@ -485,7 +485,13 @@ def _parameter_group(ctx: Ctx, tf_type: str, name_key: str) -> TfSpec:
                 f"{p.get('Source')} default, and the provider reads back only user parameters"
             )
     for k in sorted(chosen):
-        body.append(("parameter", Block([("name", k), ("value", chosen[k])])))
+        param: list[tuple[str, Any]] = [("name", k), ("value", chosen[k])]
+        # The provider reads apply_method back and hashes it into the set, so a pending-reboot
+        # parameter written with the default (immediate) plans an update.
+        method = (live or {}).get(k, {}).get("ApplyMethod")
+        if method:
+            param.append(("apply_method", method))
+        body.append(("parameter", Block(param)))
     _add_tags(ctx, body)
     return spec
 

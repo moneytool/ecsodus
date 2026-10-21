@@ -238,6 +238,40 @@ def test_parameter_group_carries_exactly_the_live_user_parameters():
     assert isinstance(result, NotImported) and "client_encoding" in result.reason
 
 
+def test_parameter_group_keeps_the_live_apply_method():
+    """The provider reads ``apply_method`` back and hashes it into the parameter set, so a
+    pending-reboot parameter written with the default (immediate) plans an update."""
+    inv, stack = _aurora()
+    pid = _pid(stack, "dbDBClusterParameterGroup")
+    inv.live[pid] = {
+        "Parameters": {
+            "client_encoding": {"Value": "UTF8", "Source": "system", "ApplyMethod": "immediate"},
+            "shared_preload_libraries": {
+                "Value": "pg_stat_statements", "Source": "user", "ApplyMethod": "pending-reboot",
+            },
+        }
+    }  # fmt: skip
+    assert _blocks(_spec(inv, stack, "dbDBClusterParameterGroup"), "parameter") == [
+        {"name": "shared_preload_libraries", "value": "pg_stat_statements",
+         "apply_method": "pending-reboot"},
+    ]  # fmt: skip
+
+    inv, stack = inventory_from_template(SYN / "data-iam-misc.yml")
+    pid = _pid(stack, "DbParams")
+    inv.live[pid] = {
+        "Parameters": {
+            "rds.force_ssl": {"Value": "1", "Source": "user", "ApplyMethod": "pending-reboot"},
+            "log_min_duration_statement": {
+                "Value": "500", "Source": "user", "ApplyMethod": "immediate",
+            },
+        }
+    }  # fmt: skip
+    assert _blocks(_spec(inv, stack, "DbParams"), "parameter") == [
+        {"name": "log_min_duration_statement", "value": "500", "apply_method": "immediate"},
+        {"name": "rds.force_ssl", "value": "1", "apply_method": "pending-reboot"},
+    ]
+
+
 def test_standalone_db_instance_and_parameter_group():
     inv, stack = inventory_from_template(SYN / "data-iam-misc.yml")
     pid = "demo-test-api-db"
